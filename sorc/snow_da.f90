@@ -2694,7 +2694,7 @@ MODULE M_DA
  
      SUBROUTINE map_obs_back_error_location(RLA, RLO, obsErr_in, backErr_in, &
                             Lat_Obs, Lon_Obs, &   !! OROG,  !OROG_at_stn,   &
-                            LENSFC, num_Obs, max_distance, max_ele_diff             &
+                            LENSFC, num_Obs, max_distance, max_ele_diff,             &
                             index_atObs, obsErr_atobs, backErr_atobs) 
     
         IMPLICIT NONE
@@ -2721,7 +2721,7 @@ MODULE M_DA
         Real(16), Parameter :: pi_div_180 = PI_16/180.0
         Real, Parameter         :: earth_rad = 6371.
     
-        index_back_atObs = -1   ! when corresponding value doesn't exit
+        index_atObs = -1   ! when corresponding value doesn't exit
         !means
         mean_obsErr = SUM(obsErr_in, MASK = (obsErr_in >= 0.))     &
                         / COUNT (obsErr_in >=0.)
@@ -3851,7 +3851,7 @@ MODULE M_DA
         CHARACTER(LEN=*), Intent(In)      :: inp_file, dim_name
         CHARACTER(LEN=*), Intent(In)      :: var_name_obsErr, var_name_backErr
         INTEGER, Intent(Out)              :: dim_size
-        REAL, ALLOCATABLE, Intent(Out)    :: obsErr, backErr, LatArr, lonArr
+        REAL, ALLOCATABLE, Intent(Out)    :: obsErr(:), backErr(:), LatArr(:), lonArr(:)
     
         INTEGER                :: ERROR, NCID, grp_ncid, ID_DIM, ID_VAR
         LOGICAL                :: file_exists
@@ -3863,8 +3863,8 @@ MODULE M_DA
                 call MPI_ABORT(MPI_COMM_WORLD, 10) ! CSD - add proper error trapping?
         endif
     
-        ERROR=NF90_OPEN(TRIM(ghcnd_inp_file),NF90_NOWRITE,NCID)
-        CALL NETCDF_ERR(ERROR, 'OPENING FILE: '//TRIM(ghcnd_inp_file) )
+        ERROR=NF90_OPEN(TRIM(inp_file),NF90_NOWRITE,NCID)
+        CALL NETCDF_ERR(ERROR, 'OPENING FILE: '//TRIM(inp_file) )
       
         ERROR=NF90_INQ_DIMID(NCID, TRIM(dim_name), ID_DIM)
         CALL NETCDF_ERR(ERROR, 'ERROR READING Dimension'//trim(dim_name) )    
@@ -3895,7 +3895,7 @@ MODULE M_DA
         CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
     
         ERROR = NF90_CLOSE(NCID)
-        CALL NETCDF_ERR(ERROR, 'ERROR closing file'//TRIM(ghcnd_inp_file) )
+        CALL NETCDF_ERR(ERROR, 'ERROR closing file'//TRIM(inp_file) )
                   
         RETURN
         
