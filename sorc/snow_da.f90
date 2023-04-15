@@ -193,6 +193,160 @@ MODULE M_DA
     END SUBROUTINE compute_covariances_multiIMS
     
 
+    subroutine compute_covariances_arr(RLA_jndx, RLO_jndx, Orog_jndx, &   ! SNOforc_jndx,  &
+        Lat_Obs, Lon_Obs, Ele_Obs, num_Obs,                             &
+        Stdev_back, Stdev_Obs,      &      !_depth, Stdev_Obs_ims,         &
+        L_horz, h_ver,                                      &   !L_horz in Km, h_ver in m
+        assim_IMS,                                          &
+        B_cov_mat, b_cov_vect, O_cov_mat, W_wght_vect) !,      &LENSFC,
+        
+        IMPLICIT NONE
+        !USE intrinsic::ieee_arithmetic
+        integer, parameter :: dp = kind(1.d0)
+
+        Real, Intent(In)        :: RLA_jndx, RLO_jndx, Orog_jndx   !, SNOforc_jndx
+        Real, Intent(In)        :: Stdev_back, Stdev_Obs(num_Obs)   !, Stdev_Obs_ims 
+        Real, Intent(In)        :: Lon_Obs(num_Obs), Lat_Obs(num_Obs), Ele_Obs(num_Obs)
+        Real, Intent(In)        :: L_horz, h_ver  !L_horz in Km, h_ver in m
+        Integer, Intent(In) :: num_Obs
+        LOGICAL, Intent(In) :: assim_IMS
+
+        Real(dp), Intent(Out)    :: B_cov_mat(num_obs,num_obs), b_cov_vect(num_obs)
+        Real(dp), Intent(Out)    :: O_cov_mat(num_obs,num_obs), W_wght_vect(num_obs) !6.10.20: W_wght_vect(num_obs, 1)
+        
+        Real(dp)    :: W_wght_vect_intr(1, num_obs)     
+        
+        Integer :: indx, jndx, zndx    
+        Real    :: rjk_distArr(num_Obs, num_Obs), zjk_distArr(num_Obs, num_Obs)    
+        Real    :: l_distArr(num_Obs), h_distArr(num_Obs), haversinArr(num_Obs)
+        Real(dp)    :: Innov_cov_mat(num_obs,num_obs), Innov_cov_mat_inv(num_obs,num_obs)
+        Real    :: d_latArr(num_Obs), d_lonArr(num_Obs)
+        Real    ::  Lon_Obs_2(num_Obs)      !RLO_2_jndx,
+        Real    :: RLA_rad_jndx, RLO_rad_jndx
+        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs)   
+        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
+        Real(16), Parameter :: pi_div_180 = PI_16/180.0
+        Real, Parameter         :: earth_rad = 6371.
+        Real, Parameter         :: snforc_tol = 0.001
+        Real, Parameter         :: Bcov_scale_factor = 0.1
+        ! PRINT*, "PI: ", PI_16
+        ! PRINT*, "PI / 180: ", pi_div_180      
+        
+        !Lon between -180 and 180 for some inputs
+        Lon_Obs_2 = Lon_Obs
+        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
+ 
+        ! deg to rad    
+        RLA_rad_jndx =  pi_div_180 * RLA_jndx
+        RLO_rad_jndx =  pi_div_180 * RLO_jndx
+        Lat_Obs_rad =  pi_div_180 * Lat_Obs
+        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2   
+
+        !1. Observation covariance 
+        ! O = stdev_o*stdev_o * I , I = Identitity matrix
+        O_cov_mat = 0.
+        Do indx = 1, num_Obs
+            O_cov_mat(indx, indx) = Stdev_Obs(indx) * Stdev_Obs(indx)
+        end do
+        ! if (assim_IMS) O_cov_mat(num_Obs, num_Obs) = Stdev_Obs_ims * Stdev_Obs_ims
+
+        if (print_debug) then
+            print*, "Obs cov"
+            print*, O_cov_mat
+        endif
+
+        !2. Background states covariance (at observation space)
+        ! B = stddev_back*stdev_back * Corr(j, k)
+        ! Corr(j, k) = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+        ! rjk = horizontal distance between j and k
+        ! zjk = vertical distance between j and k
+        ! L = horizontal correlation length (note in Km)
+        ! h = vertical correlation length   (in m)
+        
+        ! https://en.wikipedia.org/wiki/Haversine_formula
+        ! dist = 2 * R * asin { sqrt [sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2]}
+! 4.16.20 ToDO: This is a symmetric matrix: can revise later to doing only half of the computations
+        Do jndx = 1, num_Obs 
+            d_latArr = (Lat_Obs_rad(jndx) - Lat_Obs_rad) / 2.
+            d_lonArr = (Lon_Obs_rad(jndx) - Lon_Obs_rad) / 2.
+            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad) * cos(Lat_Obs_rad(jndx)) * sin(d_lonArr)**2
+            Where (haversinArr > 1) haversinArr = 1
+            ! Do indx = 1, num_Obs 
+            !     if (haversinArr(indx) > 1) haversinArr(indx) = 1 ! ensure numerical errors don't make h>1
+            ! end do
+            rjk_distArr(jndx,:) = 2 * earth_rad * asin(sqrt(haversinArr))       ! rjk, k = 1, Num obs for a given j
+            zjk_distArr(jndx,:) = abs(Ele_Obs(jndx) - Ele_Obs)       ! zjk, k = 1, Num obs for a given j
+        End do
+        !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+        if (print_debug) then
+            print*, "Dist for Back corr at obs pts"
+            print*, rjk_distArr
+            print*, "Vertical dist for Back corr at obs pts"
+            print*, zjk_distArr
+        endif
+        B_cov_mat = (1. + rjk_distArr/L_horz) * exp(-1. * rjk_distArr/L_horz) !L_horz in Km, h_ver in m
+        B_cov_mat = B_cov_mat * exp(-1. * (zjk_distArr/h_ver)**2)
+        if (print_debug) then
+            print*, "Backround corr at obs pts"
+            print*, B_cov_mat
+        endif   
+        !B_cov_mat(num_Obs, num_Obs) = 1.
+        B_cov_mat = B_cov_mat * Stdev_back * stdev_back   
+        if (print_debug) then
+            print*, "Backround cov at obs pts"
+            print*, B_cov_mat
+        endif   
+        
+        !3. b background covariance between model grid and obs points
+        ! similar to the above (B_cov_mat) except just for one point againt N obs points 
+        d_latArr = (RLA_rad_jndx - Lat_Obs_rad) / 2.
+        d_lonArr = (RLO_rad_jndx - Lon_Obs_rad) / 2.
+        haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad) * cos(RLA_rad_jndx) * sin(d_lonArr)**2
+        Where (haversinArr > 1) haversinArr = 1.
+        ! Do indx = 1, num_Obs 
+        !     if (haversinArr(indx) > 1) haversinArr(indx) = 1 ! ensure numerical errors don't make h>1
+        ! end do
+        l_distArr = 2 * earth_rad * asin(sqrt(haversinArr))     ! rjk, k = 1, Num obs for a given j
+        h_distArr = abs(Orog_jndx - Ele_Obs)       ! zjk, k = 1, Num obs for a given j
+        if (print_debug) then
+            print*, "Horz Dist for Back corr at obs pts and model grid"
+            print*, l_distArr
+            print*, "Vertical dist for Back corr at obs pts and model grid"
+            print*, h_distArr
+        endif
+        !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+        b_cov_vect =  (1. + l_distArr/L_horz) * exp(-1. * l_distArr/L_horz)  !L_horz in Km, h_ver in m
+        b_cov_vect = b_cov_vect * exp(-1. * (h_distArr/h_ver)**2)
+        if (print_debug) then
+            print*, "b corr between model grid and obs pts"
+            print*, b_cov_vect
+        endif
+        b_cov_vect = b_cov_vect * stdev_back * stdev_back 
+        if (print_debug) then
+            print*, "b cov between model grid and obs pts"
+            print*, b_cov_vect
+        endif
+
+        ! 4. Weight vector
+        ! W = (B_cov_mat + Obs_cov_mat)^-1 b
+        Innov_cov_mat = B_cov_mat + O_cov_mat       
+        Innov_cov_mat_inv = inv(Innov_cov_mat)        
+        !W_wght_vect = matmul(Innov_cov_mat_inv, RESHAPE(b_cov_vect,(/num_obs,1/)))
+        W_wght_vect_intr = matmul(RESHAPE(b_cov_vect,(/1, num_obs/)), Innov_cov_mat_inv) ! [1,m]x[m,m]=[1,m]
+        W_wght_vect = RESHAPE(W_wght_vect_intr,(/num_obs/))
+        if (print_debug) then
+            print*, "Innov cov"
+            print*, Innov_cov_mat
+            print*, "inverse of Innov cov"
+            print*, Innov_cov_mat_inv
+            print*, "weights vector"
+            print*, W_wght_vect
+        endif
+        
+        RETURN
+
+    END SUBROUTINE compute_covariances_arr  
+    
     subroutine compute_covariances(RLA_jndx, RLO_jndx, Orog_jndx, &   ! SNOforc_jndx,  &
         Lat_Obs, Lon_Obs, Ele_Obs, num_Obs,                             &
         Stdev_back, Stdev_Obs_depth, Stdev_Obs_ims,         &
@@ -1628,7 +1782,7 @@ MODULE M_DA
         
         RETURN
 
-    End subroutine nearest_Observations_Locations
+    End subroutine nearest_Observations_Locations   
 
     subroutine select_max_num_obs(dist_atObs, SNOFCS_atObs, OBS_atOBs, &
         num_loc, max_num_loc,                           &
@@ -2519,7 +2673,8 @@ MODULE M_DA
             d_lonArr = (Lon_Obs_rad(indx) - RLO_rad) / 2.
             haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad(indx)) * cos(RLA_rad) * sin(d_lonArr)**2
             WHERE(haversinArr > 1) haversinArr = 1.   ! ensure numerical errors don't make h>1
-            
+            Where (haversinArr < 0) haversinArr = 0.
+
             distArr = 2 * earth_rad * asin(sqrt(haversinArr))           
             !distArr = (Lat_Obs(indx) - RLA)**2 + (Lon_Obs_2(indx) - RLO)**2 
             min_indx = MINLOC(distArr, dim = 1)  !, MASK=ieee_is_nan(distArr))
@@ -2537,6 +2692,145 @@ MODULE M_DA
         
      END SUBROUTINE Observation_Operator
  
+     SUBROUTINE map_obs_back_error_location(RLA, RLO, obsErr_in, backErr_in, &
+                            Lat_Obs, Lon_Obs, &   !! OROG,  !OROG_at_stn,   &
+                            LENSFC, num_Obs, max_distance, max_ele_diff             &
+                            index_atObs, obsErr_atobs, backErr_atobs) 
+    
+        IMPLICIT NONE
+        !
+        !USE intrinsic::ieee_arithmetic
+        INTEGER             :: LENSFC, num_Obs
+        Real, Intent(In)        :: RLA(LENSFC), RLO(LENSFC)
+        Real, Intent(In)        :: obsErr_in(LENSFC), backErr_in(LENSFC)
+        Real, Intent(In)        :: Lat_Obs(num_Obs), Lon_Obs(num_Obs)  ! don't want to alter these
+        !Real, Intent(In)        :: OROG(LENSFC), OROG_at_stn(num_Obs)
+        Real, Intent(In)        :: max_distance, max_ele_diff
+
+        Integer, Intent(Out)    :: index_atObs(num_Obs)   ! the location of the corresponding obs
+        Real, Intent(Out)       :: obsErr_atobs(num_Obs), backErr_atobs(num_Obs)
+        
+        Real    ::  Lon_Obs_2(num_Obs)          !RLO_2(LENSFC),         
+        Real    :: RLA_rad(LENSFC), RLO_rad(LENSFC)
+        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs) 
+        Real    :: mean_obsErr, mean_backErr  
+        INTEGER :: indx, jndx, zndx, min_indx
+        Real    :: distArr(LENSFC), haversinArr(LENSFC)
+        Real    :: d_latArr(LENSFC), d_lonArr(LENSFC)
+        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
+        Real(16), Parameter :: pi_div_180 = PI_16/180.0
+        Real, Parameter         :: earth_rad = 6371.
+    
+        index_back_atObs = -1   ! when corresponding value doesn't exit
+        !means
+        mean_obsErr = SUM(obsErr_in, MASK = (obsErr_in >= 0.))     &
+                        / COUNT (obsErr_in >=0.)
+        print*, 'mean obs error ', mean_obsErr   
+        mean_backErr = SUM(backErr_in, MASK = (backErr_in >= 0.))  &
+                         / COUNT (backErr_in >=0.)    
+        print*, 'mean back error ', mean_backErr 
+
+        ! RLO from 0 to 360 (no -ve lon)
+        Lon_Obs_2 = Lon_Obs
+        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
+    
+        ! shortest distance over sphere using great circle distance     
+        RLA_rad =  pi_div_180 * RLA
+        RLO_rad =  pi_div_180 * RLO
+        Lat_Obs_rad =  pi_div_180 * Lat_Obs
+        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2   
+        
+        ! https://en.wikipedia.org/wiki/Haversine_formula
+        ! https://www.geeksforgeeks.org/program-distance-two-points-earth/
+        ! Distance, d = R * arccos[(sin(lat1) * sin(lat2)) + cos(lat1) * cos(lat2) * cos(long2 – long1)]
+        ! dist = 2 * R * asin { sqrt [sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2]}
+        Do indx = 1, num_Obs 
+            d_latArr = (Lat_Obs_rad(indx) - RLA_rad) / 2.
+            d_lonArr = (Lon_Obs_rad(indx) - RLO_rad) / 2.
+            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad(indx)) * cos(RLA_rad) * sin(d_lonArr)**2
+            WHERE(haversinArr > 1) haversinArr = 1.   ! ensure numerical errors don't make h>1
+            Where (haversinArr < 0) haversinArr = 0.
+            
+            distArr = 2 * earth_rad * asin(sqrt(haversinArr))           
+            !distArr = (Lat_Obs(indx) - RLA)**2 + (Lon_Obs_2(indx) - RLO)**2 
+            min_indx = MINLOC(distArr, dim = 1)  !, MASK=ieee_is_nan(distArr))
+    
+            if(distArr(min_indx) < max_distance) then   
+                !.and. (OROG(min_indx) - OROG_at_stn(indx) < max_ele_diff)
+                index_atObs(indx) = min_indx
+                obsErr_atobs(indx) = obsErr_in(min_indx)
+                backErr_atobs(indx) = backErr_in(min_indx)
+            else
+            !     Print*, " Warning! distance greater than ",max_distance," km ", distArr(min_indx)
+                obsErr_atobs(indx) = mean_obsErr
+                backErr_atobs(indx) = mean_backErr                   
+            endif
+        end do
+        
+        RETURN
+        
+     END SUBROUTINE map_obs_back_error_location
+
+     subroutine nearest_Obs_error_location(RLA_jndx, RLO_jndx, OROG_jndx,    &
+        num_Obs, Lat_Obs, Lon_Obs, OROG_at_stn,                    &
+        max_distance, max_ele_diff,      &
+        loc_atObs) 
+        
+        IMPLICIT NONE
+       
+        Real, Intent(In)        :: RLA_jndx, RLO_jndx, OROG_jndx  ! don't want to alter these
+        Integer, Intent(In)     :: num_Obs
+        Real, Intent(In)    :: Lat_Obs(num_Obs), Lon_Obs(num_Obs), OROG_at_stn(num_Obs) 
+        Real, Intent(In)        :: max_distance, max_ele_diff
+
+        Integer, Allocatable, Intent(Out)    :: loc_atObs(:)
+        !Real, Allocatable, Intent(Out)    :: dist_atObs(:)
+        
+        
+        Integer :: indx, jndx, min_indx
+        Real    :: distArr(num_Obs), haversinArr(num_Obs)
+        Real    :: d_latArr(num_Obs), d_lonArr(num_Obs)
+        Real    :: Lon_Obs_2(num_Obs)   !RLO_2_jndx, 
+        Real    :: RLA_rad_jndx, RLO_rad_jndx
+        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs)   
+        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
+        Real(16), Parameter :: pi_div_180 = PI_16/180.0
+        Real, Parameter         :: earth_rad = 6371.
+
+
+        loc_atObs = -1   ! when corresponding value doesn't exit
+
+        Lon_Obs_2 = Lon_Obs
+        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
+    
+        ! shortest distance over sphere using great circle distance     
+        RLA_rad_jndx =  pi_div_180 * RLA_jndx
+        RLO_rad_jndx =  pi_div_180 * RLO_jndx
+        Lat_Obs_rad =  pi_div_180 * Lat_Obs
+        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2   
+        
+        ! https://en.wikipedia.org/wiki/Haversine_formula
+        ! https://www.geeksforgeeks.org/program-distance-two-points-earth/
+        ! Distance, d = R * arccos[(sin(lat1) * sin(lat2)) + cos(lat1) * cos(lat2) * cos(long2 – long1)]
+        ! dist = 2 * R * asin { sqrt [sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2]}
+
+        d_latArr = (Lat_Obs_rad - RLA_rad_jndx) / 2.
+        d_lonArr = (Lon_Obs_rad - RLO_rad_jndx) / 2.
+        haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad) * cos(RLA_rad_jndx) * sin(d_lonArr)**2
+        Where (haversinArr > 1) haversinArr = 1.
+        Where (haversinArr < 0) haversinArr = 0.
+
+        distArr = 2 * earth_rad * asin(sqrt(haversinArr))
+
+        min_indx = MINLOC(distArr, dim = 1)  !, MASK=ieee_is_nan(distArr))
+    
+        if(distArr(min_indx) < max_distance) loc_atObs = min_indx
+  
+        
+        RETURN
+
+    End subroutine nearest_Obs_error_location 
+
     SUBROUTINE Observation_Operator_Parallel_vect_ens(Myrank, NPROCS, LENSFC, LENSFC_land, &
             ens_size, num_Obs, num_Eval, RLA_in, RLO_in, Lat_Obs, Lon_Obs, OROG_at_stn, max_distance, &
             SNOFCS_back_in, stn_obs, LANDMASK_in, SNOFCS_atObs, &
@@ -3546,6 +3840,66 @@ MODULE M_DA
         RETURN
         
      END SUBROUTINE Observation_Operator_tiles_Parallel
+
+    ! assumes the lat lon names are 'latitude', 'longitude'
+    SUBROUTINE read_obs_back_error(inp_file, dim_name, var_name_obsErr, var_name_backErr, &
+                    dim_size, obsErr, backErr, LatArr, lonArr)
+        
+        IMPLICIT NONE    
+        include 'mpif.h'
+
+        CHARACTER(LEN=*), Intent(In)      :: inp_file, dim_name
+        CHARACTER(LEN=*), Intent(In)      :: var_name_obsErr, var_name_backErr
+        INTEGER, Intent(Out)              :: dim_size
+        REAL, ALLOCATABLE, Intent(Out)    :: obsErr, backErr, LatArr, lonArr
+    
+        INTEGER                :: ERROR, NCID, grp_ncid, ID_DIM, ID_VAR
+        LOGICAL                :: file_exists
+
+        INQUIRE(FILE=trim(inp_file), EXIST=file_exists)
+        if (.not. file_exists) then
+                print *, 'read_obs_back_error error, file does not exist', &
+                        trim(inp_file) , ' exiting'
+                call MPI_ABORT(MPI_COMM_WORLD, 10) ! CSD - add proper error trapping?
+        endif
+    
+        ERROR=NF90_OPEN(TRIM(ghcnd_inp_file),NF90_NOWRITE,NCID)
+        CALL NETCDF_ERR(ERROR, 'OPENING FILE: '//TRIM(ghcnd_inp_file) )
+      
+        ERROR=NF90_INQ_DIMID(NCID, TRIM(dim_name), ID_DIM)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING Dimension'//trim(dim_name) )    
+        ERROR=NF90_INQUIRE_DIMENSION(NCID,ID_DIM,LEN=dim_size)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING Size of Dimension' )
+    
+        ALLOCATE(obsErr(dim_size))
+        ALLOCATE(backErr(dim_size))
+        ALLOCATE(LatArr(dim_size))
+        ALLOCATE(lonArr(dim_size))
+
+        ERROR=NF90_INQ_VARID(ncid, 'latitude', ID_VAR)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING latitude ID' )
+        ERROR=NF90_GET_VAR(ncid, ID_VAR, LatArr)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING Lat RECORD' )
+        ERROR=NF90_INQ_VARID(ncid, 'longitude', ID_VAR)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING Lon ID' )
+        ERROR=NF90_GET_VAR(ncid, ID_VAR, lonArr)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING Lon RECORD' )
+
+        ERROR=NF90_INQ_VARID(ncid, TRIM(var_name_obsErr), ID_VAR)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD ID' )
+        ERROR=NF90_GET_VAR(ncid, ID_VAR, obsErr)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
+        ERROR=NF90_INQ_VARID(ncid, TRIM(var_name_backErr), ID_VAR)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD ID' )
+        ERROR=NF90_GET_VAR(ncid, ID_VAR, backErr)
+        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
+    
+        ERROR = NF90_CLOSE(NCID)
+        CALL NETCDF_ERR(ERROR, 'ERROR closing file'//TRIM(ghcnd_inp_file) )
+                  
+        RETURN
+        
+     End SUBROUTINE read_obs_back_error
 
     SUBROUTINE Observation_Read_GHCND_IODA(ghcnd_inp_file, &
                     STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &

@@ -671,7 +671,8 @@ CONTAINS
             snowUpdateOpt, PRINTRANK, print_debg_info, &            !fv3_index, vector_inputs, &
             SNDANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
             Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)
+                begloc, endloc, exclude_obs_at_grid,   &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)
                                                         
         !----------------------------------------------------------------------
         ! Input arguments: 
@@ -719,8 +720,9 @@ CONTAINS
         LOGICAL             :: print_debg_info   !, fv3_indexvector_inputs, 
 
         Real, intent(In)    :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back
-        ! Real, Parameter   :: Stdev_back_depth = 30., Stdev_Obsv_depth = 40., Stdev_Obsv_ims = 80. ! mm 
-        ! real                    :: stdev_obsv, stdev_back
+        
+        LOGICAL, intent(in)            :: read_obsback_error 
+        CHARACTER(LEN=*), Intent(In)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
 
          ! for mpi par
         INTEGER   :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
@@ -748,6 +750,12 @@ CONTAINS
         CHARACTER(len=4)     :: y_str, m_str, d_Str, h_str, fvs_tile
         REAL, ALLOCATABLE    :: SNOOBS_stn(:), SNOFCS_at_stn(:), SNOANL_atStn(:)  !, SNOFCS_at_stn_ML(:)                
         REAL, ALLOCATABLE    :: Lat_stn(:), Lon_stn(:), OROG_at_stn(:)  
+        
+        Integer              :: obsback_err_dim_size
+        REAL, ALLOCATABLE    :: obsErr(:), backErr(:), obsErr_latArr(:), obsErr_lonArr(:), &
+                                obsErr_atobs(:), backErr_atobs(:)
+        Integer, allocatable :: index_err_atObs(:)
+
         REAL                 :: lat_min, lat_max, lon_min, lon_max      
         Real                 :: SNCOV_IMS(LENSFC_proc)  ! ims resampled at each grid
         Real                 :: SNO_IMS_at_Grid(LENSFC_proc)
@@ -762,12 +770,11 @@ CONTAINS
         Integer                :: num_loc, num_loc_1, num_loc_2
         
         ! Integer                 :: ims_assm_hour
-
         !Real                           :: obs_tolerance, ims_max_ele
-
         Real(dp), Allocatable    :: B_cov_mat(:,:), b_cov_vect(:)
         Real(dp), Allocatable    :: O_cov_mat(:,:), W_wght_vect(:)
-        Real, Allocatable        :: back_at_Obs(:), obs_Array(:), Lat_Obs(:), Lon_Obs(:), orog_Obs(:)
+        Real, Allocatable        :: back_at_Obs(:), obs_Array(:), Lat_Obs(:), Lon_Obs(:), orog_Obs(:), &
+                                    obsErr_loc(:)
         REAL                     :: incr_at_Grid(LENSFC_proc)    ! increment at grid
         Real, Allocatable        :: obs_Innov(:), OmB_innov_at_stn(:)
 
@@ -976,7 +983,14 @@ CONTAINS
                     PRINT*, OROG_at_stn
             endif
             if (myrank==PRINTRANK) PRINT*,'Finished reading station data'
-        endif
+            
+            if (read_obsback_error) then
+                ! assumes the lat lon names are 'latitude', 'longitude'
+                Call read_obs_back_error(inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                                obsback_err_dim_size, obsErr, backErr, obsErr_latArr, obsErr_lonArr)
+                if (myrank==PRINTRANK) PRINT*,'Finished reading obs/back error data'
+            endif
+        endif     
 
 ! CSD beyond this point, there should be no specific mention of the station data source
 ! 3b. Read remotely sensed snow cover, and convert to  snow depth or SWE. 
@@ -1098,9 +1112,20 @@ CONTAINS
                 PRINT*, "O - B (innovation at obs points)"
                 PRINT*, OmB_innov_at_stn 
             endif
-            if (myrank==PRINTRANK) PRINT*,'Finished observation operator for station data'         
+            if (myrank==PRINTRANK) PRINT*,'Finished observation operator for station data'    
+            
+            if (read_obsback_error) then 
+                allocate(index_err_atObs(num_stn))
+                allocate(obsErr_atobs(num_stn))
+                allocate(backErr_atobs(num_stn)) 
+                Call map_obs_back_error_location(obsErr_latArr, obsErr_lonArr, obsErr, backErr, &
+                            Lat_stn, Lon_stn, & !! OROG,  !OROG_at_stn,   &
+                            obsback_err_dim_size, num_stn, 10.0 * obs_srch_rad, 10.0 * max_ele_diff,  &
+                            index_err_atObs, obsErr_atobs, backErr_atobs) 
+                if (myrank==PRINTRANK) PRINT*,'Finished mapping back/obs error' 
+            endif
         endif ! num_stn > 0
-
+        
 !=============================================================================================
 ! 5.  obs QC goes here
 !=============================================================================================
@@ -1168,7 +1193,10 @@ CONTAINS
                     Allocate(obs_Array(num_loc))
                     Allocate(Lat_Obs(num_loc))
                     Allocate(Lon_Obs(num_loc))
-                    Allocate(orog_Obs(num_loc))                        
+                    Allocate(orog_Obs(num_loc))
+
+                    ALLOCATE(obsErr_loc(num_loc))   
+
                     if(num_loc_1 > 0) then
                         index_obs_assmilated(1, jndx) = num_loc_1
                         Do zndx = 1, num_loc_1     
@@ -1179,6 +1207,14 @@ CONTAINS
                             Lon_Obs(zndx) = Lon_stn(index_at_nearStn(zndx))
                             orog_Obs(zndx) = OROG_at_stn(index_at_nearStn(zndx)) 
                         End Do
+                       
+                        obsErr_loc = stdev_obsv_depth
+                        if (read_obsback_error) then 
+                            Stdev_back = backErr_atobs(index_at_nearStn(1))
+                            Do zndx = 1, num_loc_1     
+                                obsErr_loc(zndx) = obsErr_atobs(index_at_nearStn(zndx)) 
+                            End Do                            
+                        endif
                     End if
                     ! Append IMS-derived snow depth to the obs array 
                     if(assim_sncov_thisGridCell) then   
@@ -1187,8 +1223,12 @@ CONTAINS
                         obs_Array(num_loc) = SNO_IMS_at_Grid(jndx)
                         Lat_Obs(num_loc) = RLA(jndx)   
                         Lon_Obs(num_loc) = RLO(jndx) 
-                        orog_Obs(num_loc) = OROG(jndx)  
+                        orog_Obs(num_loc) = OROG(jndx)
+                         
+                        obsErr_loc(num_loc) = stdev_obsv_sncov
+
                     endif
+
                     ! compute covariances 
                     if(exclude_obs_at_grid .and. (num_loc_1 > 1) &
 ! TBC 8.11.22 This could be too far for some grid cell/obs combinations
@@ -1199,10 +1239,10 @@ CONTAINS
                         Allocate(O_cov_mat(num_loc-1, num_loc-1))
                         Allocate(W_wght_vect(num_loc-1)) 
                         Allocate(obs_Innov(num_loc-1))  
-                        call compute_covariances(RLA(jndx), RLO(jndx), OROG(jndx), &    !SNDFCS(jndx),    &
+                        call compute_covariances_arr(RLA(jndx), RLO(jndx), OROG(jndx), &    !SNDFCS(jndx),    &
                                 Lat_Obs(2:num_loc), Lon_Obs(2:num_loc), orog_Obs(2:num_loc), &
                                 num_loc-1,   &
-                                Stdev_back, stdev_obsv_depth, stdev_obsv_sncov,      &
+                                Stdev_back, obsErr_loc(2:num_loc),   &   !stdev_obsv_depth, stdev_obsv_sncov,      &
                                 L_horz, h_ver,                                   &   !L_horz in Km, h_ver in m
                                 assim_sncov_thisGridCell,                          &
                                 B_cov_mat, b_cov_vect, O_cov_mat, W_wght_vect)                   
@@ -1214,9 +1254,9 @@ CONTAINS
                         Allocate(O_cov_mat(num_loc, num_loc))
                         Allocate(W_wght_vect(num_loc)) 
                         Allocate(obs_Innov(num_loc))  
-                        call compute_covariances(RLA(jndx), RLO(jndx), OROG(jndx), &    !SNDFCS(jndx),    &
+                        call compute_covariances_arr(RLA(jndx), RLO(jndx), OROG(jndx), &    !SNDFCS(jndx),    &
                                 Lat_Obs, Lon_Obs, orog_Obs, num_loc,   &
-                                Stdev_back, stdev_obsv_depth, stdev_obsv_sncov,      &
+                                Stdev_back, obsErr_loc,  &   ! stdev_obsv_depth, stdev_obsv_sncov,      &
                                 L_horz, h_ver,                                   &   !L_horz in Km, h_ver in m
                                 assim_sncov_thisGridCell,                          &
                                 B_cov_mat, b_cov_vect, O_cov_mat, W_wght_vect)                   
@@ -1242,6 +1282,7 @@ CONTAINS
                  
                     !free mem
                     DEALLOCATE(back_at_Obs, obs_Array)
+                    DEALLOCATE(obsErr_loc)
                     DEALLOCATE(Lat_Obs, Lon_Obs, orog_Obs, obs_Innov)
                     DEALLOCATE(B_cov_mat, b_cov_vect, O_cov_mat, W_wght_vect)                            
                 ! else 
@@ -1473,6 +1514,14 @@ CONTAINS
         if (allocated(index_back_atObs)) DEALLOCATE(index_back_atObs) 
 
         if (allocated(Index_Obs_Excluded)) DEALLOCATE(Index_Obs_Excluded)
+        
+        if (allocated(obsErr)) deallocate(obsErr) 
+        if (allocated(backErr)) deallocate(backErr) 
+        if (allocated(obsErr_latArr)) deallocate(obsErr_latArr) 
+        if (allocated(obsErr_lonArr)) deallocate(obsErr_lonArr) 
+        if (allocated(index_err_atObs)) deallocate(index_err_atObs)
+        if (allocated(obsErr_atobs)) deallocate(obsErr_atobs)
+        if (allocated(backErr_atobs)) deallocate(backErr_atobs)
 
         if (allocated(OROG_at_stn))  DEALLOCATE(OROG_at_stn) 
         if (allocated(index_back_atEval)) DEALLOCATE(index_back_atEval)

@@ -107,6 +107,9 @@
     INTEGER      :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
     Integer      :: LENSFC_proc
 
+    LOGICAL, intent(in)            :: read_obsback_error 
+    CHARACTER(LEN=*), Intent(In)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
     !                 DELTSFC,IALB,USE_UFO,DONST,             &
     !                 ADJT_NST_ONLY,ISOT,IVEGSRC,ZSEA1_MM,    &
@@ -127,7 +130,8 @@
         restart_prefix, openloop_prefix, static_prefix, output_prefix, &
         print_debg_info, & !STANDALONE_SNOWDA, , fv3_index, vector_inputs, point_state_prefix, &        
         PRINTRANK, snowUpdateOpt, begloc, endloc, lsm_type, &
-        exclude_obs_at_grid
+        exclude_obs_at_grid, &
+        read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
     !
     DATA IDIM,JDIM,LSOIL,NUM_TILES/96,96,4,6/ 
     DATA IY,IM,ID,IH,FH/1997,8,2,0,0./
@@ -188,6 +192,12 @@
     DATA endloc/1/ 
     DATA lsm_type/2/
     DATA exclude_obs_at_grid/.false./
+
+    DATA read_obsback_error/.false./
+    DATA inp_file_obsErr/""/
+    DATA dim_name_obsErr/""/
+    DATA var_name_obsErr/""/
+    DATA var_name_backErr/""/
 
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
@@ -291,7 +301,8 @@
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !, vector_inputs, , fv3_index
                 SNDANL,  &   !SNOFCS, SWEANL, & incr_at_Grid, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)          
+                begloc, endloc, exclude_obs_at_grid, &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)          
     Else if(SNOW_DA_TYPE .eq. 3) then
         Call EnKF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
                 IY, IM, ID, IH, &
