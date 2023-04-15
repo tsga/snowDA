@@ -18,6 +18,7 @@
 ! 2  - OI applied to NOAH-MP multi-layer snow depth on land-only FV3 grids vector
 ! 3  - EnKF applied to NOAH-MP multi-layer snow depth on land-only vector
 ! 4  - EnSRF applied to NOAH-MP on land only 
+! 5  - Particle Filter (PF) applied to NOAH-MP
 !lsm_type
 !  1 - NOAH
 !  2 - NOAH-MP
