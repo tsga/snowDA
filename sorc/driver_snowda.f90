@@ -108,8 +108,8 @@
     INTEGER      :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
     Integer      :: LENSFC_proc
 
-    LOGICAL, intent(in)            :: read_obsback_error 
-    CHARACTER(LEN=*), Intent(In)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+    LOGICAL            :: read_obsback_error 
+    CHARACTER(LEN=*)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
     !                 DELTSFC,IALB,USE_UFO,DONST,             &
@@ -195,10 +195,10 @@
     DATA exclude_obs_at_grid/.false./
 
     DATA read_obsback_error/.false./
-    DATA inp_file_obsErr/""/
-    DATA dim_name_obsErr/""/
-    DATA var_name_obsErr/""/
-    DATA var_name_backErr/""/
+    DATA inp_file_obsErr/"obsbackerr.nc"/
+    DATA dim_name_obsErr/"location"/
+    DATA var_name_obsErr/"obsErr"/
+    DATA var_name_backErr/"backErr"/
 
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
