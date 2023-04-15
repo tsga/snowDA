@@ -661,7 +661,7 @@ CONTAINS
   subroutine OI_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, &  !num_assim_steps, dT_Asssim,  & 
                 LENSFC, IVEGSRC, PERCENT_OBS_WITHHELD, &
                 L_horz , h_ver, obs_tolerance, max_ele_diff, &
-                stdev_obsv_depth, stdev_obsv_sncov, stdev_back, &
+                stdev_obsv_depth, stdev_obsv_sncov, stdev_back_in, &
                 obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &                                
                 ims_max_ele, num_subgrd_ims_cels, &
                 assim_SnowPack_obs, assim_SnowCov_obs, &
@@ -719,7 +719,8 @@ CONTAINS
         REAL, intent(out)   :: SNDANL_out(LENSFC)
         LOGICAL             :: print_debg_info   !, fv3_indexvector_inputs, 
 
-        Real, intent(In)    :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back
+        Real, intent(In)    :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back_in
+        real                :: stdev_back
         
         LOGICAL, intent(in)            :: read_obsback_error 
         CHARACTER(LEN=*), Intent(In)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
@@ -842,7 +843,7 @@ CONTAINS
         ! DAMASK = 0
 
         ! stdev_obsv = stdev_obsv_depth
-        ! stdev_back = stdev_back_depth  
+        stdev_back = stdev_back_in  
         !obs_srch_rad = 250. ! radius of observation search
         ! ims_assm_hour = 18 
         ! noah models specific? Needed to ID glaciers.
