@@ -2725,10 +2725,10 @@ MODULE M_DA
         !means
         mean_obsErr = SUM(obsErr_in, MASK = (obsErr_in >= 0.))     &
                         / COUNT (obsErr_in >=0.)
-        print*, 'mean obs error ', mean_obsErr   
+        ! print*, 'mean obs error ', mean_obsErr   
         mean_backErr = SUM(backErr_in, MASK = (backErr_in >= 0.))  &
                          / COUNT (backErr_in >=0.)    
-        print*, 'mean back error ', mean_backErr 
+        ! print*, 'mean back error ', mean_backErr 
 
         ! RLO from 0 to 360 (no -ve lon)
         Lon_Obs_2 = Lon_Obs

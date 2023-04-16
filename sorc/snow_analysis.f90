@@ -1123,7 +1123,11 @@ CONTAINS
                             Lat_stn, Lon_stn, & !! OROG,  !OROG_at_stn,   &
                             obsback_err_dim_size, num_stn, 10.0 * obs_srch_rad, 10.0 * max_ele_diff,  &
                             index_err_atObs, obsErr_atobs, backErr_atobs) 
-                if (myrank==PRINTRANK) PRINT*,'Finished mapping back/obs error' 
+                if (myrank==PRINTRANK) then 
+                    PRINT*,'Finished mapping back/obs error'
+                    print*, 'obs error', obsErr_atobs
+                    print*, 'back error', backErr_atobs 
+                endif
             endif
         endif ! num_stn > 0
         
