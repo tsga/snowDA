@@ -2766,6 +2766,8 @@ MODULE M_DA
                 backErr_atobs(indx) = mean_backErr                   
             endif
         end do
+        Where(.not.(obsErr_atobs >= 0.)) obsErr_atobs = mean_obsErr
+        Where(.not.(backErr_atobs >= 0.)) backErr_atobs = mean_backErr
         
         RETURN
         
