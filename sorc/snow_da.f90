@@ -624,8 +624,12 @@ MODULE M_DA
                 print*, h_distArr
             endif      
             ! factor for localization of R covariance 
-            R_cov_loc = exp(1. * (l_distArr/L_horz)**2) !L_horz in Km, h_ver in m (1. + rjk_distArr/L_horz) * 
-            R_cov_loc = R_cov_loc * exp(1. * (h_distArr/h_ver)**2)
+!4.18.23 use similar form as that of OI localiztion/
+            !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+            R_cov_loc = (1. + l_distArr/L_horz) * exp(-1. * l_distArr/L_horz)        !L_horz in Km, h_ver in m 
+            R_cov_loc = R_cov_loc * exp(-1. * (h_distArr/h_ver)**2)      !**2)
+            ! R_cov_loc = exp(1. * l_distArr/L_horz)        !**2) !L_horz in Km, h_ver in m 
+            ! R_cov_loc = R_cov_loc * exp(1. * h_distArr/h_ver)      !**2)
             if (print_debug) then
                 print*, "Obs cov localization factor"
                 print*, R_cov_loc
@@ -1035,7 +1039,7 @@ MODULE M_DA
         assim_IMS, rcov_localize, ens_inflate,    & !rcov_correlated, bcov_localize, 
         SNOFCS_Inp_Ens,          &     !LENSFC, 
         loc_nearest_Obs, SNOFCS_atObs_ens,   &
-        Stdev_Obs_depth, Stdev_Obs_ims,  stdev_back,                &
+        Stdev_Obs, stdev_back,                  &   !Stdev_Obs_ims, 
         obs_Array,                          &
         obs_Innov, incr_atGrid_ens, anl_at_Grid_ens)
         
@@ -1054,7 +1058,7 @@ MODULE M_DA
         Real, Intent(In)        :: SNOFCS_Inp_Ens(ens_size)  !, LENSFC)
         Integer, Intent(In)     :: loc_nearest_Obs(num_Obs_1)        
         Real, Intent(In)        :: SNOFCS_atObs_ens(ens_size, num_stn)
-        Real, Intent(In)        :: Stdev_Obs_depth, Stdev_Obs_ims, stdev_back
+        Real, Intent(In)        :: Stdev_Obs(num_Obs), stdev_back   !, Stdev_Obs_ims
         REAL, INTENT(In)        :: obs_Array(num_Obs)
 
         Real, INTENT(Out)   :: obs_Innov(num_Obs)
@@ -1109,9 +1113,10 @@ MODULE M_DA
          ! R = stdev_o*stdev_o * I , I = Identitity matrix
         R_cov = 0.
         Do indx = 1, num_Obs
-            R_cov(indx, indx) = Stdev_Obs_depth * Stdev_Obs_depth
+            ! R_cov(indx, indx) = Stdev_Obs_depth * Stdev_Obs_depth
+            R_cov(indx, indx) = Stdev_Obs(indx) * Stdev_Obs(indx)
         end do
-        if (assim_IMS) R_cov(num_Obs, num_Obs) = Stdev_Obs_ims * Stdev_Obs_ims
+        ! if (assim_IMS) R_cov(num_Obs, num_Obs) = Stdev_Obs_ims * Stdev_Obs_ims
         if (print_debug) then
             print*, "Obs cov before localization"
             print*, R_cov
@@ -1134,14 +1139,18 @@ MODULE M_DA
                 print*, h_distArr
             endif  
             ! factor for localization of R covariance 
-            R_cov_loc = exp(1. * l_distArr/L_horz)        !**2) !L_horz in Km, h_ver in m 
-            R_cov_loc = R_cov_loc * exp(1. * h_distArr/h_ver)      !**2)
+!4.18.23 use similar form as that of OI localiztion/
+            !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+            R_cov_loc = (1. + l_distArr/L_horz) * exp(-1. * l_distArr/L_horz)        !L_horz in Km, h_ver in m 
+            R_cov_loc = R_cov_loc * exp(-1. * (h_distArr/h_ver)**2)      !**2)
+            ! R_cov_loc = exp(1. * l_distArr/L_horz)        !**2) !L_horz in Km, h_ver in m 
+            ! R_cov_loc = R_cov_loc * exp(1. * h_distArr/h_ver)      !**2)
             if (print_debug) then
                 print*, "Obs cov localization factor"
                 print*, R_cov_loc
             endif 
             Do indx = 1, num_Obs
-                R_cov(indx, indx) = R_cov(indx, indx) * R_cov_loc(indx)
+                R_cov(indx, indx) = R_cov(indx, indx) / R_cov_loc(indx)
             end do
             if (print_debug) then
                 print*, "Obs cov after localization"
@@ -2691,87 +2700,6 @@ MODULE M_DA
         RETURN
         
      END SUBROUTINE Observation_Operator
- 
-     SUBROUTINE map_obs_back_error_location(RLA, RLO, obsErr_in, backErr_in, &
-                            Lat_Obs, Lon_Obs, &   !! OROG,  !OROG_at_stn,   &
-                            LENSFC, num_Obs, max_distance, max_ele_diff,             &
-                            index_atObs, obsErr_atobs, backErr_atobs) 
-    
-        IMPLICIT NONE
-        !
-        !USE intrinsic::ieee_arithmetic
-        INTEGER             :: LENSFC, num_Obs
-        Real, Intent(In)        :: RLA(LENSFC), RLO(LENSFC)
-        Real, Intent(In)        :: obsErr_in(LENSFC), backErr_in(LENSFC)
-        Real, Intent(In)        :: Lat_Obs(num_Obs), Lon_Obs(num_Obs)  ! don't want to alter these
-        !Real, Intent(In)        :: OROG(LENSFC), OROG_at_stn(num_Obs)
-        Real, Intent(In)        :: max_distance, max_ele_diff
-
-        Integer, Intent(Out)    :: index_atObs(num_Obs)   ! the location of the corresponding obs
-        Real, Intent(Out)       :: obsErr_atobs(num_Obs), backErr_atobs(num_Obs)
-        
-        Real    ::  Lon_Obs_2(num_Obs)          !RLO_2(LENSFC),         
-        Real    :: RLA_rad(LENSFC), RLO_rad(LENSFC)
-        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs) 
-        Real    :: mean_obsErr, mean_backErr  
-        INTEGER :: indx, jndx, zndx, min_indx
-        Real    :: distArr(LENSFC), haversinArr(LENSFC)
-        Real    :: d_latArr(LENSFC), d_lonArr(LENSFC)
-        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
-        Real(16), Parameter :: pi_div_180 = PI_16/180.0
-        Real, Parameter         :: earth_rad = 6371.
-    
-        index_atObs = -1   ! when corresponding value doesn't exit
-        !means
-        mean_obsErr = SUM(obsErr_in, MASK = (obsErr_in >= 0.))     &
-                        / COUNT (obsErr_in >=0.)
-        ! print*, 'mean obs error ', mean_obsErr   
-        mean_backErr = SUM(backErr_in, MASK = (backErr_in >= 0.))  &
-                         / COUNT (backErr_in >=0.)    
-        ! print*, 'mean back error ', mean_backErr 
-
-        ! RLO from 0 to 360 (no -ve lon)
-        Lon_Obs_2 = Lon_Obs
-        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
-    
-        ! shortest distance over sphere using great circle distance     
-        RLA_rad =  pi_div_180 * RLA
-        RLO_rad =  pi_div_180 * RLO
-        Lat_Obs_rad =  pi_div_180 * Lat_Obs
-        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2   
-        
-        ! https://en.wikipedia.org/wiki/Haversine_formula
-        ! https://www.geeksforgeeks.org/program-distance-two-points-earth/
-        ! Distance, d = R * arccos[(sin(lat1) * sin(lat2)) + cos(lat1) * cos(lat2) * cos(long2 – long1)]
-        ! dist = 2 * R * asin { sqrt [sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2]}
-        Do indx = 1, num_Obs 
-            d_latArr = (Lat_Obs_rad(indx) - RLA_rad) / 2.
-            d_lonArr = (Lon_Obs_rad(indx) - RLO_rad) / 2.
-            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad(indx)) * cos(RLA_rad) * sin(d_lonArr)**2
-            WHERE(haversinArr > 1) haversinArr = 1.   ! ensure numerical errors don't make h>1
-            Where (haversinArr < 0) haversinArr = 0.
-            
-            distArr = 2 * earth_rad * asin(sqrt(haversinArr))           
-            !distArr = (Lat_Obs(indx) - RLA)**2 + (Lon_Obs_2(indx) - RLO)**2 
-            min_indx = MINLOC(distArr, dim = 1)  !, MASK=ieee_is_nan(distArr))
-    
-            if(distArr(min_indx) < max_distance) then   
-                !.and. (OROG(min_indx) - OROG_at_stn(indx) < max_ele_diff)
-                index_atObs(indx) = min_indx
-                obsErr_atobs(indx) = obsErr_in(min_indx)
-                backErr_atobs(indx) = backErr_in(min_indx)
-            else
-            !     Print*, " Warning! distance greater than ",max_distance," km ", distArr(min_indx)
-                obsErr_atobs(indx) = mean_obsErr
-                backErr_atobs(indx) = mean_backErr                   
-            endif
-        end do
-        Where(.not.(obsErr_atobs >= 0.)) obsErr_atobs = mean_obsErr
-        Where(.not.(backErr_atobs >= 0.)) backErr_atobs = mean_backErr
-        
-        RETURN
-        
-     END SUBROUTINE map_obs_back_error_location
 
      subroutine nearest_Obs_error_location(RLA_jndx, RLO_jndx, OROG_jndx,    &
         num_Obs, Lat_Obs, Lon_Obs, OROG_at_stn,                    &
@@ -3888,13 +3816,13 @@ MODULE M_DA
         CALL NETCDF_ERR(ERROR, 'ERROR READING Lon RECORD' )
 
         ERROR=NF90_INQ_VARID(ncid, TRIM(var_name_obsErr), ID_VAR)
-        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD ID' )
+        CALL NETCDF_ERR(ERROR, 'ERROR READING obsErr ID' )
         ERROR=NF90_GET_VAR(ncid, ID_VAR, obsErr)
-        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
+        CALL NETCDF_ERR(ERROR, 'ERROR READING obsErr RECORD' )
         ERROR=NF90_INQ_VARID(ncid, TRIM(var_name_backErr), ID_VAR)
-        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD ID' )
+        CALL NETCDF_ERR(ERROR, 'ERROR READING backErr ID' )
         ERROR=NF90_GET_VAR(ncid, ID_VAR, backErr)
-        CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
+        CALL NETCDF_ERR(ERROR, 'ERROR READING backErr RECORD' )
     
         ERROR = NF90_CLOSE(NCID)
         CALL NETCDF_ERR(ERROR, 'ERROR closing file'//TRIM(inp_file) )
@@ -3902,6 +3830,90 @@ MODULE M_DA
         RETURN
         
      End SUBROUTINE read_obs_back_error
+
+     SUBROUTINE map_obs_back_error_location(RLA, RLO, obsErr_in, backErr_in, &
+                            Lat_Obs, Lon_Obs, &   !! OROG,  !OROG_at_stn,   &
+                            LENSFC, num_Obs, max_distance, max_ele_diff,             &
+                            index_atObs, obsErr_atobs, backErr_atobs) 
+    
+        IMPLICIT NONE
+        !
+        !USE intrinsic::ieee_arithmetic
+        INTEGER             :: LENSFC, num_Obs
+        Real, Intent(In)        :: RLA(LENSFC), RLO(LENSFC)
+        Real, Intent(In)        :: obsErr_in(LENSFC), backErr_in(LENSFC)
+        Real, Intent(In)        :: Lat_Obs(num_Obs), Lon_Obs(num_Obs)  ! don't want to alter these
+        !Real, Intent(In)        :: OROG(LENSFC), OROG_at_stn(num_Obs)
+        Real, Intent(In)        :: max_distance, max_ele_diff
+
+        Integer, Intent(Out)    :: index_atObs(num_Obs)   ! the location of the corresponding obs
+        Real, Intent(Out)       :: obsErr_atobs(num_Obs), backErr_atobs(num_Obs)
+        
+        Real    ::  Lon_Obs_2(num_Obs)          !RLO_2(LENSFC),         
+        Real    :: RLA_rad(LENSFC), RLO_rad(LENSFC)
+        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs) 
+        Real    :: mean_obsErr, mean_backErr  
+        INTEGER :: indx, jndx, zndx, min_indx
+        Real    :: distArr(LENSFC), haversinArr(LENSFC)
+        Real    :: d_latArr(LENSFC), d_lonArr(LENSFC)
+        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
+        Real(16), Parameter :: pi_div_180 = PI_16/180.0
+        Real, Parameter         :: earth_rad = 6371.
+    
+        index_atObs = -1   ! when corresponding value doesn't exit
+        !means
+        !RMS mean = RMS(RMS)
+        mean_obsErr = SUM(obsErr_in * obsErr_in, MASK = (obsErr_in >= 0.))     &
+                        / COUNT (obsErr_in >=0.)
+        mean_obsErr = sqrt(mean_obsErr)
+        ! print*, 'mean obs error ', mean_obsErr   
+        mean_backErr = SUM(backErr_in * backErr_in, MASK = (backErr_in >= 0.))  &
+                         / COUNT (backErr_in >=0.)   
+        mean_backErr = sqrt(mean_backErr) 
+        ! print*, 'mean back error ', mean_backErr 
+
+        ! RLO from 0 to 360 (no -ve lon)
+        Lon_Obs_2 = Lon_Obs
+        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
+    
+        ! shortest distance over sphere using great circle distance     
+        RLA_rad =  pi_div_180 * RLA
+        RLO_rad =  pi_div_180 * RLO
+        Lat_Obs_rad =  pi_div_180 * Lat_Obs
+        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2   
+        
+        ! https://en.wikipedia.org/wiki/Haversine_formula
+        ! https://www.geeksforgeeks.org/program-distance-two-points-earth/
+        ! Distance, d = R * arccos[(sin(lat1) * sin(lat2)) + cos(lat1) * cos(lat2) * cos(long2 – long1)]
+        ! dist = 2 * R * asin { sqrt [sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2]}
+        Do indx = 1, num_Obs 
+            d_latArr = (Lat_Obs_rad(indx) - RLA_rad) / 2.
+            d_lonArr = (Lon_Obs_rad(indx) - RLO_rad) / 2.
+            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad(indx)) * cos(RLA_rad) * sin(d_lonArr)**2
+            WHERE(haversinArr > 1) haversinArr = 1.   ! ensure numerical errors don't make h>1
+            Where (haversinArr < 0) haversinArr = 0.
+            
+            distArr = 2 * earth_rad * asin(sqrt(haversinArr))           
+            !distArr = (Lat_Obs(indx) - RLA)**2 + (Lon_Obs_2(indx) - RLO)**2 
+            min_indx = MINLOC(distArr, dim = 1)  !, MASK=ieee_is_nan(distArr))
+    
+            if(distArr(min_indx) < max_distance) then   
+                !.and. (OROG(min_indx) - OROG_at_stn(indx) < max_ele_diff)
+                index_atObs(indx) = min_indx
+                obsErr_atobs(indx) = obsErr_in(min_indx)
+                backErr_atobs(indx) = backErr_in(min_indx)
+            else
+            !     Print*, " Warning! distance greater than ",max_distance," km ", distArr(min_indx)
+                obsErr_atobs(indx) = mean_obsErr
+                backErr_atobs(indx) = mean_backErr                   
+            endif
+        end do
+        Where(.not.(obsErr_atobs >= 0.)) obsErr_atobs = mean_obsErr
+        Where(.not.(backErr_atobs >= 0.)) backErr_atobs = mean_backErr
+        
+        RETURN
+        
+     END SUBROUTINE map_obs_back_error_location
 
     SUBROUTINE Observation_Read_GHCND_IODA(ghcnd_inp_file, &
                     STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &

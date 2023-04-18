@@ -342,7 +342,8 @@
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)
+                begloc, endloc, exclude_obs_at_grid, &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)
 
     Else if(SNOW_DA_TYPE .eq. 5) then    
         Call PF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &

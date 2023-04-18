@@ -754,7 +754,8 @@ CONTAINS
         
         Integer              :: obsback_err_dim_size
         REAL, ALLOCATABLE    :: obsErr(:), backErr(:), obsErr_latArr(:), obsErr_lonArr(:), &
-                                obsErr_atobs(:), backErr_atobs(:)
+                                obsErr_atobs(:), backErr_atobs(:), &
+                                obsErr_loc(:)
         Integer, allocatable :: index_err_atObs(:)
 
         REAL                 :: lat_min, lat_max, lon_min, lon_max      
@@ -774,8 +775,7 @@ CONTAINS
         !Real                           :: obs_tolerance, ims_max_ele
         Real(dp), Allocatable    :: B_cov_mat(:,:), b_cov_vect(:)
         Real(dp), Allocatable    :: O_cov_mat(:,:), W_wght_vect(:)
-        Real, Allocatable        :: back_at_Obs(:), obs_Array(:), Lat_Obs(:), Lon_Obs(:), orog_Obs(:), &
-                                    obsErr_loc(:)
+        Real, Allocatable        :: back_at_Obs(:), obs_Array(:), Lat_Obs(:), Lon_Obs(:), orog_Obs(:)
         REAL                     :: incr_at_Grid(LENSFC_proc)    ! increment at grid
         Real, Allocatable        :: obs_Innov(:), OmB_innov_at_stn(:)
 
@@ -3186,7 +3186,8 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)
+                begloc, endloc, exclude_obs_at_grid,   &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)
    !----------------------------------------------------------------------
    ! Input arguments: 
          
@@ -3212,13 +3213,17 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
     REAL, intent(in)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim
     Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
     Real, intent(In)    :: obs_srch_rad, bkgst_srch_rad, ims_max_ele   
-    Real, intent(In)    :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back
+    Real, intent(In)    :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back_in
     ! Real, Parameter        :: Stdev_back_depth = 30., Stdev_Obsv_depth = 40., Stdev_Obsv_ims = 80. ! mm 
-    ! real                   :: stdev_obsv, stdev_back     
+    real                   :: stdev_back     !stdev_obsv, 
     INTEGER, intent(in) :: max_num_nearStn, max_num_nearIMS, num_subgrd_ims_cels
     INTEGER, intent(in) :: snowUpdateOpt, PRINTRANK
     REAL, intent(out)   :: SNOANL_out(LENSFC)
     LOGICAL             :: vector_inputs, print_debg_info, fv3_index
+
+    LOGICAL, intent(in)            :: read_obsback_error 
+    CHARACTER(LEN=*), Intent(In)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+
         ! for mpi par
     INTEGER   :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
     Integer   :: LENSFC_proc, begloc, endloc
@@ -3252,6 +3257,13 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
     
     ! Integer                :: ims_assm_hour
 	INTEGER                :: jndx, zndx, ncol, nrow
+
+!4.17.23 for reading obs/back error from files (estimated from TC, e.g.,)
+    Integer              :: obsback_err_dim_size
+    REAL, ALLOCATABLE    :: obsErr(:), backErr(:), obsErr_latArr(:), obsErr_lonArr(:), &
+                                obsErr_atobs(:), backErr_atobs(:), &
+                                obsErr_loc(:)
+    Integer, allocatable :: index_err_atObs(:)
 
     !ens
     Real, ALLOCATABLE    :: SNOFCS_atObs_ens(:,:), OROGFCS_atObs(:)  !SWEFCS_Ens(:,:), SNDFCS_Ens(:,:), , back_at_Obs_ens(:,:)
@@ -3345,7 +3357,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
     !initialse output with nodata
     IMS_Foot_Print = IEEE_VALUE(IMS_Foot_Print, IEEE_QUIET_NAN)
     ! stdev_obsv = stdev_obsv_depth
-    ! stdev_back = stdev_back_depth  
+    stdev_back = stdev_back_in  
     !obs_srch_rad = 250. ! radius of observation search
     ! ims_assm_hour = 18 
     ! noah models specific? Needed to ID glaciers.
@@ -3478,6 +3490,12 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                     PRINT*, OROG_at_stn
             endif
             if (myrank==PRINTRANK) PRINT*,'Finished reading station data'
+            if (read_obsback_error) then
+                ! assumes the lat lon names are 'latitude', 'longitude'
+                Call read_obs_back_error(inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                                obsback_err_dim_size, obsErr, backErr, obsErr_latArr, obsErr_lonArr)
+                if (myrank==PRINTRANK) PRINT*,'Finished reading obs/back error data'
+            endif
         endif
 ! CSD beyond this point, there should be no specific mention of the station data source
 
@@ -3618,7 +3636,24 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                 ! PRINT*, "O - B (innovation at obs points)"
                 ! PRINT*, OmB_innov_at_stn 
             endif
-            if (myrank==PRINTRANK) PRINT*,'Finished observation operator for station data'         
+            if (myrank==PRINTRANK) PRINT*,'Finished observation operator for station data' 
+
+            if (read_obsback_error) then 
+                allocate(index_err_atObs(num_stn))
+                allocate(obsErr_atobs(num_stn))
+                allocate(backErr_atobs(num_stn)) 
+                Call map_obs_back_error_location(obsErr_latArr, obsErr_lonArr, obsErr, backErr, &
+                            Lat_stn, Lon_stn, & !! OROG,  !OROG_at_stn,   &
+                            obsback_err_dim_size, num_stn, 10.0 * obs_srch_rad, 10.0 * max_ele_diff,  &
+                            index_err_atObs, obsErr_atobs, backErr_atobs) 
+                if (myrank==PRINTRANK) then 
+                    PRINT*,'Finished mapping back/obs error'
+                    if (print_debg_info) then
+                        print*, 'obs error', obsErr_atobs
+                        print*, 'back error', backErr_atobs 
+                    endif
+                endif
+            endif        
         endif ! num_stn > 0
 
 !=============================================================================================
@@ -3698,7 +3733,9 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                     Allocate(Lat_Obs(num_loc))
                     Allocate(Lon_Obs(num_loc))
                     Allocate(orog_Obs(num_loc))  
-                    ! ghcnd
+
+                    ALLOCATE(obsErr_loc(num_loc))  
+                    
                     if(num_loc_1 > 0) then
                         index_obs_assmilated(1, jndx) = num_loc_1
                         Do zndx = 1, num_loc_1    
@@ -3709,6 +3746,14 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                             Lon_Obs(zndx) = Lon_stn(index_at_nearStn(zndx))
                             orog_Obs(zndx) = OROG_at_stn(index_at_nearStn(zndx)) 
                         End Do
+
+                        obsErr_loc = stdev_obsv_depth
+                        if (read_obsback_error) then 
+                            Stdev_back = backErr_atobs(index_at_nearStn(1))
+                            Do zndx = 1, num_loc_1     
+                                obsErr_loc(zndx) = obsErr_atobs(index_at_nearStn(zndx)) 
+                            End Do                            
+                        endif
                     End if
                     ! Append IMS-derived snow depth to the obs array 
                     if(assim_sncov_thisGridCell) then   
@@ -3718,6 +3763,9 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                         Lat_Obs(num_loc) = RLA(jndx)   
                         Lon_Obs(num_loc) = RLO(jndx) 
                         orog_Obs(num_loc) = OROG(jndx)
+
+                        obsErr_loc(num_loc) = stdev_obsv_sncov
+
                     endif	
                     ! EnSRF
                     if(exclude_obs_at_grid .and. (num_loc_1 > 1)) then
@@ -3729,7 +3777,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                             assim_sncov_thisGridCell, rcov_localize, ens_inflate,   & !rcov_correlated, bcov_localize, 
                             SNDFCS(1:ens_size, jndx),   & !LENSFC, 
                             index_at_nearStn(2:num_loc), SNOFCS_atObs_ens,	 &
-                            stdev_obsv_depth, stdev_obsv_sncov, stdev_back,         &
+                            obsErr_loc, stdev_obsv_depth, stdev_obsv_sncov, stdev_back,         &
                             obs_Array(2:num_loc),                          &
                             obs_Innov, incr_at_Grid(:, jndx), SNDANL(:, jndx))         
                         ! print_i = print_i + 1
@@ -3763,6 +3811,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                     endif					
                     DEALLOCATE(obs_Array, obs_Innov)
                     DEALLOCATE(Lat_Obs, Lon_Obs, orog_Obs)
+                    DEALLOCATE(obsErr_loc)
                 ! else
                 !     SNDANL(:, jndx) = SNDFCS(:,jndx) !anl_at_Grid_ens(1:ens_size, jndx) = SNDFCS_Ens(:, jndx)
                 !     SNDANL(ens_size+1, jndx) = SUM(SNDFCS(1:ens_size, jndx)) / ens_size
@@ -3961,6 +4010,14 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
         if (allocated(Obs_atEvalPts))   DEALLOCATE(Obs_atEvalPts)
         if (allocated(index_back_atEval)) DEALLOCATE(index_back_atEval)
         if (allocated(index_obs_atEval))   DEALLOCATE(index_obs_atEval)
+
+        if (allocated(obsErr)) deallocate(obsErr) 
+        if (allocated(backErr)) deallocate(backErr) 
+        if (allocated(obsErr_latArr)) deallocate(obsErr_latArr) 
+        if (allocated(obsErr_lonArr)) deallocate(obsErr_lonArr) 
+        if (allocated(index_err_atObs)) deallocate(index_err_atObs)
+        if (allocated(obsErr_atobs)) deallocate(obsErr_atobs)
+        if (allocated(backErr_atobs)) deallocate(backErr_atobs)
 
         ! Call UPDATEtime(IY_loc, IM_loc, ID_loc, IH_real, dT_Asssim)
         ! IH_loc = INT(IH_real)    ! (for the obs. available currently) this should be 18
