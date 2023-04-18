@@ -1122,6 +1122,7 @@ CONTAINS
                 Call map_obs_back_error_location(obsErr_latArr, obsErr_lonArr, obsErr, backErr, &
                             Lat_stn, Lon_stn, & !! OROG,  !OROG_at_stn,   &
                             obsback_err_dim_size, num_stn, 10.0 * obs_srch_rad, 10.0 * max_ele_diff,  &
+                            0.5*stdev_obsv_depth, 0.5*stdev_back_in,    &
                             index_err_atObs, obsErr_atobs, backErr_atobs) 
                 if (myrank==PRINTRANK) then 
                     PRINT*,'Finished mapping back/obs error'
@@ -3175,7 +3176,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, & !num_assim_steps, dT_Asssim,  & 
                 LENSFC, IVEGSRC, PERCENT_OBS_WITHHELD, & 
                 L_horz , h_ver, obs_tolerance, max_ele_diff, &
-                stdev_obsv_depth, stdev_obsv_sncov, stdev_back, &
+                stdev_obsv_depth, stdev_obsv_sncov, stdev_back_in, &
                 obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &                                
                 ims_max_ele, num_subgrd_ims_cels, &
                 ens_size, rcov_localize, ens_inflate,  &  !rcov_correlated, bcov_localize, 
@@ -3645,6 +3646,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                 Call map_obs_back_error_location(obsErr_latArr, obsErr_lonArr, obsErr, backErr, &
                             Lat_stn, Lon_stn, & !! OROG,  !OROG_at_stn,   &
                             obsback_err_dim_size, num_stn, 10.0 * obs_srch_rad, 10.0 * max_ele_diff,  &
+                            0.5*stdev_obsv_depth, 0.5*stdev_back_in,    &
                             index_err_atObs, obsErr_atobs, backErr_atobs) 
                 if (myrank==PRINTRANK) then 
                     PRINT*,'Finished mapping back/obs error'
@@ -3777,7 +3779,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                             assim_sncov_thisGridCell, rcov_localize, ens_inflate,   & !rcov_correlated, bcov_localize, 
                             SNDFCS(1:ens_size, jndx),   & !LENSFC, 
                             index_at_nearStn(2:num_loc), SNOFCS_atObs_ens,	 &
-                            obsErr_loc, stdev_obsv_depth, stdev_obsv_sncov, stdev_back,         &
+                            obsErr_loc(2:num_loc), stdev_back,         &           !stdev_obsv_depth, stdev_obsv_sncov, 
                             obs_Array(2:num_loc),                          &
                             obs_Innov, incr_at_Grid(:, jndx), SNDANL(:, jndx))         
                         ! print_i = print_i + 1
@@ -3790,7 +3792,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                             assim_sncov_thisGridCell, rcov_localize, ens_inflate,  & !  rcov_correlated, bcov_localize, 
                             SNDFCS(1:ens_size, jndx),   & !LENSFC, 
                             index_at_nearStn, SNOFCS_atObs_ens,	 &
-                            stdev_obsv_depth, stdev_obsv_sncov, stdev_back,         &
+                            obsErr_loc, stdev_back,         &           !stdev_obsv_depth, stdev_obsv_sncov,
                             obs_Array,                          &
                             obs_Innov, incr_at_Grid(:, jndx), SNDANL(:, jndx))         
                         ! print_i = print_i + 1

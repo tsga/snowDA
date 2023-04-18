@@ -1487,7 +1487,8 @@ MODULE M_DA
         call DGETRF(n, n, Ainv, n, ipiv, info)
     
         if (info /= 0) then
-        stop 'Matrix is numerically singular!'
+            print*, 'MAtrix ', Ainv
+            stop 'Matrix is numerically singular!'
         end if
     
         ! DGETRI computes the inverse of a matrix using the LU factorization
@@ -3834,6 +3835,7 @@ MODULE M_DA
      SUBROUTINE map_obs_back_error_location(RLA, RLO, obsErr_in, backErr_in, &
                             Lat_Obs, Lon_Obs, &   !! OROG,  !OROG_at_stn,   &
                             LENSFC, num_Obs, max_distance, max_ele_diff,             &
+                            min_obs_err, min_back_err,                 &
                             index_atObs, obsErr_atobs, backErr_atobs) 
     
         IMPLICIT NONE
@@ -3844,7 +3846,7 @@ MODULE M_DA
         Real, Intent(In)        :: obsErr_in(LENSFC), backErr_in(LENSFC)
         Real, Intent(In)        :: Lat_Obs(num_Obs), Lon_Obs(num_Obs)  ! don't want to alter these
         !Real, Intent(In)        :: OROG(LENSFC), OROG_at_stn(num_Obs)
-        Real, Intent(In)        :: max_distance, max_ele_diff
+        Real, Intent(In)        :: max_distance, max_ele_diff, min_obs_err, min_back_err
 
         Integer, Intent(Out)    :: index_atObs(num_Obs)   ! the location of the corresponding obs
         Real, Intent(Out)       :: obsErr_atobs(num_Obs), backErr_atobs(num_Obs)
@@ -3908,8 +3910,8 @@ MODULE M_DA
                 backErr_atobs(indx) = mean_backErr                   
             endif
         end do
-        Where(.not.(obsErr_atobs >= 0.)) obsErr_atobs = mean_obsErr
-        Where(.not.(backErr_atobs >= 0.)) backErr_atobs = mean_backErr
+        Where(.not.(obsErr_atobs >= min_obs_err)) obsErr_atobs = mean_obsErr
+        Where(.not.(backErr_atobs >= min_back_err)) backErr_atobs = mean_backErr
         
         RETURN
         

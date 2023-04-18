@@ -109,7 +109,7 @@
     Integer      :: LENSFC_proc
 
     LOGICAL            :: read_obsback_error 
-    CHARACTER(LEN=*)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+    CHARACTER(LEN=500)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
     !                 DELTSFC,IALB,USE_UFO,DONST,             &
