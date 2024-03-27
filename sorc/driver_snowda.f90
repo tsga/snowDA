@@ -87,18 +87,21 @@
     REAL                :: PERCENT_OBS_WITHHELD
     REAL                :: horz_len_scale, ver_len_scale, obs_tolerance, max_ele_diff 
     REAL                :: obs_srch_rad, bkgst_srch_rad, ims_max_ele  !, dT_Asssim
-    REAL                :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back
+    REAL                :: stdev_obsv_depth, stdev_obsv_sncov, stdev_back, &
+                           static_stdev_back
     Integer             :: max_num_nearStn, max_num_nearIMS, num_subgrd_ims_cels
     Integer             :: ENS_SIZE   !num_assim_steps, ims_assm_hour, 
     LOGICAL             :: assim_SnowPack_obs, assim_SnowCov_obs, ims_correlated, &
-                           rcov_localize, ens_inflate !rcov_correlated, bcov_localize,
+                           rcov_localize, ens_inflate, &
+                           rcov_correlated, bcov_localize, BBcov_localize, &
+                           add_static_bcov
     CHARACTER(LEN=500)  :: STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, & 
                            IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH,  &
                            !SFC_FORECAST_PREFIX, &  ! CURRENT_ANALYSIS_PREFIX, ENKFGDAS_TOP_DIR, &
                            restart_prefix, openloop_prefix, &
                            static_prefix, output_prefix    !, point_state_prefix                       
     ! CHARACTER(len=4)    :: stn_var 
-    LOGICAL             :: print_debg_info   !STANDALONE_SNOWDA, , vector_inputs, fv3_index
+    LOGICAL             :: print_debg_info, resample_scf   !STANDALONE_SNOWDA, , vector_inputs, fv3_index
     Integer             :: begloc, endloc, lsm_type
     LOGICAL             :: exclude_obs_at_grid
     !Integer	     :: s_assm_hour
@@ -108,8 +111,10 @@
     INTEGER      :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
     Integer      :: LENSFC_proc
 
-    LOGICAL            :: read_obsback_error 
+    LOGICAL            :: read_obsback_error, read_weighted_back
     CHARACTER(LEN=500)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+    CHARACTER(LEN=500)   :: inp_file_backEsmfWeights
+    logical              :: only_hofx
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
     !                 DELTSFC,IALB,USE_UFO,DONST,             &
@@ -124,15 +129,19 @@
         obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &
         ims_max_ele, num_subgrd_ims_cels, &
         stdev_obsv_depth, stdev_obsv_sncov, stdev_back, &   !num_assim_steps, dT_Asssim, ims_assm_hour, 
-        ENS_SIZE, rcov_localize, ens_inflate, &           !rcov_correlated, bcov_localize, 
+        ENS_SIZE, rcov_localize, ens_inflate, &           
+        rcov_correlated, bcov_localize, BBcov_localize, & 
+        add_static_bcov, static_stdev_back, &
         assim_SnowPack_obs, assim_SnowCov_obs, ims_correlated,  &    !stn_var, &
         STN_OBS_PREFIX, STN_DIM_NAME,STN_VAR_NAME,STN_ELE_NAME, &
-        IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, &      !SFC_FORECAST_PREFIX, &  !CURRENT_ANALYSIS_PREFIX, ENKFGDAS_TOP_DIR, &
+        IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf,  &      !SFC_FORECAST_PREFIX, &  !CURRENT_ANALYSIS_PREFIX, ENKFGDAS_TOP_DIR, &
         restart_prefix, openloop_prefix, static_prefix, output_prefix, &
         print_debg_info, & !STANDALONE_SNOWDA, , fv3_index, vector_inputs, point_state_prefix, &        
         PRINTRANK, snowUpdateOpt, begloc, endloc, lsm_type, &
         exclude_obs_at_grid, &
-        read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
+        read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+        read_weighted_back, inp_file_backEsmfWeights, &
+        only_hofx
     !
     DATA IDIM,JDIM,LSOIL,NUM_TILES/96,96,4,6/ 
     DATA IY,IM,ID,IH,FH/1997,8,2,0,0./
@@ -157,13 +166,16 @@
     DATA stdev_obsv_depth/40.0/
     DATA stdev_obsv_sncov/80.0/
     DATA stdev_back/30.0/
+    DATA add_static_bcov/.false./
+    DATA static_stdev_back/30.0/
     ! DATA num_assim_steps/1/  ! For multiple time steps of assimilation
     ! DATA dT_Asssim/24.0/     ! hrs. For multiple time steps of assimilation
     ! DATA ims_assm_hour/18/
     DATA ENS_SIZE/20/
     DATA rcov_localize/.false./
-    ! DATA rcov_correlated/.false./
-    ! DATA bcov_localize/.false./
+    DATA rcov_correlated/.false./
+    DATA bcov_localize/.false./
+    DATA BBcov_localize/.false./
     DATA ens_inflate/.false./
     DATA assim_SnowPack_obs/.false./
     DATA assim_SnowCov_obs/.false./
@@ -175,6 +187,7 @@
     DATA STN_ELE_NAME/"elevation"/
     DATA IMS_SNOWCOVER_PATH/'        '/
     DATA IMS_INDEXES_PATH/'        '/
+    DATA resample_scf/.false./
     ! DATA SFC_FORECAST_PREFIX/'        '/   ! leave this empty to use the default sfc_ files location
     ! DATA CURRENT_ANALYSIS_PREFIX/'        '/
     ! DATA ENKFGDAS_TOP_DIR/'        '/
@@ -196,9 +209,15 @@
 
     DATA read_obsback_error/.false./
     DATA inp_file_obsErr/"obsbackerr.nc"/
+    
     DATA dim_name_obsErr/"location"/
     DATA var_name_obsErr/"obsErr"/
     DATA var_name_backErr/"backErr"/
+
+    DATA read_weighted_back/.false./
+    DATA inp_file_backEsmfWeights/"ghcn-C768_bilinear_wts.nc"/
+
+    DATA only_hofx/.false./
 
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
@@ -297,13 +316,15 @@
                 ims_max_ele, num_subgrd_ims_cels, &
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, & 
-                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, &
+                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf,  &
                 restart_prefix, openloop_prefix, static_prefix, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !, vector_inputs, , fv3_index
                 SNDANL,  &   !SNOFCS, SWEANL, & incr_at_Grid, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
                 begloc, endloc, exclude_obs_at_grid, &
-                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)          
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                read_weighted_back, inp_file_backEsmfWeights, &
+                only_hofx)          
     Else if(SNOW_DA_TYPE .eq. 3) then
         Call EnKF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
                 IY, IM, ID, IH, &
@@ -314,15 +335,20 @@
                 obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &                                
                 ims_max_ele, num_subgrd_ims_cels, &
                 ens_size, rcov_localize, ens_inflate,  &  !rcov_correlated, 
+                rcov_correlated, bcov_localize, BBcov_localize, &
+                add_static_bcov, static_stdev_back, &
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
-                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, & 
+                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
                 restart_prefix, openloop_prefix, static_prefix, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)
+                begloc, endloc, exclude_obs_at_grid, &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                read_weighted_back, inp_file_backEsmfWeights,    &
+                only_hofx)
 
     Else if(SNOW_DA_TYPE .eq. 4) then    
         Call EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
@@ -333,17 +359,20 @@
                 stdev_obsv_depth, stdev_obsv_sncov, stdev_back, & 
                 obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &                                
                 ims_max_ele, num_subgrd_ims_cels, &
-                ens_size, rcov_localize, ens_inflate,  & !rcov_correlated, bcov_localize, 
+                ens_size, rcov_localize, ens_inflate,  & 
+                rcov_correlated, bcov_localize, BBcov_localize, & 
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
-                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, & 
+                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
                 restart_prefix, openloop_prefix, static_prefix, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
                 begloc, endloc, exclude_obs_at_grid, &
-                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr)
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                read_weighted_back, inp_file_backEsmfWeights,   &
+                only_hofx)
 
     Else if(SNOW_DA_TYPE .eq. 5) then    
         Call PF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
@@ -357,13 +386,14 @@
                 ens_size, rcov_localize, ens_inflate,  &  !rcov_correlated, 
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
-                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, & 
+                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
                 restart_prefix, openloop_prefix, static_prefix, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc, exclude_obs_at_grid)
+                begloc, endloc, exclude_obs_at_grid,   &
+                only_hofx)
         
     Endif 
 
