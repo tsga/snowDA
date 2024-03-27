@@ -4275,6 +4275,387 @@ END subroutine PF_Snow_Analysis_NOAHMP
 
 END subroutine EnKF_Snow_Analysis_NOAHMP
 
+ subroutine Add_Ensemble_Snow_Increments_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, & !num_assim_steps, dT_Asssim,  & 
+                LENSFC, IVEGSRC, ens_size, &
+                vector_restart_prefix, vector_increment_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
+                SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
+                Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
+                begloc, endloc)
+   !----------------------------------------------------------------------
+   ! Input arguments: 
+         
+    !----------------------------------------------------------------------
+    IMPLICIT NONE
+    !
+    include 'mpif.h'
+
+    integer, parameter :: dp = kind(1.d0)
+   ! , enkf_ensrf
+    INTEGER, intent(in)    :: NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &  
+                              IY, IM, ID, IH, LENSFC, IVEGSRC   !, num_assim_steps 
+    Integer, intent(in)    :: ens_size
+    CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_increment_prefix, vector_noda_prefix, &
+                                      static_prefix, output_prefix
+    INTEGER, intent(in) :: snowUpdateOpt, PRINTRANK
+    REAL, intent(out)   :: SNOANL_out(LENSFC)
+    LOGICAL             :: print_debg_info  !, fv3_index vector_inputs, 
+        ! for mpi par
+    INTEGER   :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
+    Integer   :: LENSFC_proc, begloc, endloc
+
+    CHARACTER(LEN=5)    :: TILE_NUM
+    INTEGER	            :: IERR	
+    REAL             :: SNDFCS(ens_size+1, LENSFC_proc), SWEFCS(ens_size+1, LENSFC_proc), &
+                        SNDANL(ens_size+1, LENSFC_proc), SWEANL(ens_size+1, LENSFC_proc)
+    REAL             :: SNDnoDA(LENSFC_proc), SWEnoDA(LENSFC_proc)       !, SNOANL_Cur(LENSFC)
+    
+    REAL   :: RLA(LENSFC_proc), RLO(LENSFC_proc), RLO_Tile(LENSFC_proc), OROG(LENSFC_proc)  !, OROG_UF(LENSFC)
+    REAL            :: VETFCS(LENSFC_proc), SNUP_Array(LENSFC_proc)           ! SNOFCS(LENSFC), 
+    Integer         :: tile_xy(LENSFC_proc), Idim_xy(LENSFC_proc), Jdim_xy(LENSFC_proc)
+    INTEGER             :: LANDMASK(LENSFC_proc)  !, DAMASK(LENSFC)
+
+    CHARACTER(len=4)     :: y_str, m_str, d_Str, h_str, fvs_tile
+    REAL                 :: lat_min, lat_max, lon_min, lon_max      
+
+    Real, Parameter        :: Stdev_back_depth = 30., Stdev_Obsv_depth = 40., Stdev_Obsv_ims = 80. ! mm 
+    real                   :: stdev_obsv, stdev_back
+	INTEGER                :: jndx, zndx, ncol, nrow
+
+    REAL                     :: incr_at_Grid(ens_size+1, LENSFC_proc) !, incr_at_Grid_ensM(LENSFC)    ! increment at grid
+
+    CHARACTER(len=250)       :: forc_inp_file, inc_inp_file, da_out_file, noda_inp_path
+    CHARACTER(LEN=4)         :: RANKCH 
+    CHARACTER(LEN=500)       :: static_filename
+    ! Integer                 :: NEXC    
+    Real               :: snodens, SNODENS_Grid(ens_size+1, LENSFC_proc)
+    Integer            :: veg_type_landice  ! 10.21.20: no assmn over land ice
+
+    INTEGER            :: send_proc, rec_stat(MPI_STATUS_SIZE), dest_Aoffset, &
+                            dest_Aoffset_end, arLen, pindex
+    INTEGER            :: mpiReal_size, rsize, isize, mpiInt_size, ixy, ie
+    REAL               :: tmp
+    INTEGER            :: istep
+
+    ! CSD-todo, should be same as in sfcsub. Share properly
+    Real, parameter    :: nodata_val = -9999.9
+
+    integer, parameter :: lsm_type = 2
+
+!   Snow partion options for Noah-MP
+    integer, parameter     :: DO_NOTHING = 0
+    integer, parameter     :: TOP_LAYER = 1
+    integer, parameter     :: BOTTOM_LAYER = 2
+    integer, parameter     :: ALL_LAYERS = 3
+
+    ! noah mp
+    Real  :: SCF_Grid(ens_size+1, LENSFC_proc)
+    Real  :: noahmp_ensm_swe(LENSFC_proc), noahmp_ensm_snow_depth(LENSFC_proc)
+
+    type(noahmp_type)      :: noahmp(ens_size)
+    ! type(observation_type) :: obs    
+!     snwdph  ! depth 
+!     weasd     ! SWE 
+!     snowc   !fractional snow cover
+!     sncovr1 ! snow cover over land
+!     tsurf ! surface skin temperature
+!     stc(time, soil_levels, location) !soil temperature
+!     tsnoxy(time, snow_levels, location) ! snow temperature
+    Do ie = 1, ens_size
+        allocate(noahmp(ie)%swe                (LENSFC_proc))
+        allocate(noahmp(ie)%snow_depth         (LENSFC_proc))
+        allocate(noahmp(ie)%active_snow_layers (LENSFC_proc))
+        allocate(noahmp(ie)%swe_previous       (LENSFC_proc))
+        allocate(noahmp(ie)%snow_soil_interface(LENSFC_proc,7))
+        allocate(noahmp(ie)%temperature_snow   (LENSFC_proc,3))
+        allocate(noahmp(ie)%snow_ice_layer     (LENSFC_proc,3))
+        allocate(noahmp(ie)%snow_liq_layer     (LENSFC_proc,3))
+        allocate(noahmp(ie)%temperature_soil   (LENSFC_proc)) 
+    End do       
+    ! end type noahmp_type 
+
+    !=============================================================================================
+    ! 1. initialise vars,set-up processors, and read lat/lon from orog files.
+    !=============================================================================================
+
+    stdev_obsv = stdev_obsv_depth
+    stdev_back = stdev_back_depth  
+
+    ! noah models specific? Needed to ID glaciers.
+    if (IVEGSRC == 2) then   ! sib
+            veg_type_landice=13
+    else
+            veg_type_landice=15
+    endif
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+    !total number of processors used = Multiple of 6: any extra processors sent to end of subroutine
+    IF (myrank ==PRINTRANK) PRINT*,"Add_Ensemble_Snow_Increments_NOAHMP numprocs ", NPROCS, " Num tiles : ", NUM_TILES
+! if (p_tN /= 4 ) goto 999
+
+! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
+    write(fvs_tile, "(I0.2)") IDIM
+    static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)//"_static_fields.nc"
+    Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+            mp_start, mp_end, &
+            tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
+    ! make RLO copy before so that RLO (used later) is not modified
+    RLO_Tile = RLO 
+    Where(RLO_Tile > 180) RLO_Tile = RLO_Tile - 360
+    ! 1 degree buffer around tile boundaries (but not to go out of valid coords)
+    lat_min = MAX(MINVAL(RLA) - 1., -90.)
+    lat_max = MIN(MAXVAL(RLA) + 1., 90.)
+    lon_min = MAX(MINVAL(RLO_Tile) - 1., -180.)
+    lon_max = MIN(MAXVAL(RLO_Tile) + 1., 180.)   
+    if ((p_tRank==PRINTRANK) ) then !.and. print_deb) then
+            print*, " min/max lat/lon ", lat_min, lat_max, lon_min, lon_max
+    endif
+      
+    ! Do istep = 1, num_assim_steps                
+    write(y_str, "(I4)") IY
+    write(m_str, "(I0.2)") IM
+    write(d_str, "(I0.2)") ID
+    write(h_str, "(I0.2)") IH   
+
+!=============================================================================================
+! 2. Read model forecast here, as need VETFCS and snow density for IMS snow depth calc. (later, separate read routines) 
+!=============================================================================================
+  
+    ! READ THE INPUT SURFACE DATA from vector and no da outputs
+    noda_inp_path=TRIM(vector_noda_prefix)//"/ufs_land_output."// &
+        TRIM(y_str)//"-"//TRIM(m_str)//"-"//TRIM(d_str)//"_"//TRIM(h_str)//"-00-00.nc"
+
+! Read vector increments first: Note increment files have save variable name as restarts 
+!> we only copy noahmp(ie)%snow_depth
+    Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_increment_prefix, noda_inp_path, &
+        y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
+        noahmp, SNDnoDA, SWEnoDA, SCF_Grid)  !, SNDFCS, SWEFCS)
+
+    incr_at_Grid(ens_size+1,:) = 0.0
+    Do ie = 1, ens_size
+        ! swe_incr_at_Grid(ie,:) = noahmp(ie)%swe(:)
+        incr_at_Grid(ie,:) = noahmp(ie)%snow_depth(:)    !incr_at_Grid(ens_size+1, LENSFC_proc)
+        incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) + incr_at_Grid(ie,:)
+    End do   
+    incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) / ens_size  
+
+    Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_restart_prefix, noda_inp_path, &
+                    y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
+                    noahmp, SNDnoDA, SWEnoDA, SCF_Grid)  !, SNDFCS, SWEFCS)
+    ! initialise analysis to forecast (mostly to retain non-land snow states, which are not updated)
+    SWEFCS(ens_size+1,:) = 0.0
+    SNDFCS(ens_size+1,:) = 0.0
+    ! SNODENS_Grid(ens_size+1,:) = 0.0
+    SCF_Grid(ens_size+1,:) = 0.0
+    !SCF_Grid_Land(ens_size+1,:) = 0.0
+    Do ie = 1, ens_size
+        SWEFCS(ie,:) = noahmp(ie)%swe(:)
+        SNDFCS(ie,:) = noahmp(ie)%snow_depth(:)
+        ! grid snow density
+        call calc_density(LENSFC_proc, lsm_type, LANDMASK, SWEFCS(ie,:), SNDFCS(ie,:), &
+                            noahmp(ie)%temperature_soil, SNODENS_Grid(ie,:))
+        SWEFCS(ens_size+1,:) = SWEFCS(ens_size+1,:) + SWEFCS(ie,:)
+        SNDFCS(ens_size+1,:) = SNDFCS(ens_size+1,:) + SNDFCS(ie,:)
+        SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) + SCF_Grid(ie,:)
+        !SCF_Grid_Land(ens_size+1,:) = SCF_Grid_Land(ens_size+1,:) + SCF_Grid_Land(ie,:)
+    End do         
+    ! SUM(SNDFCS(1:ens_size, jndx)) / ens_size
+    SWEFCS(ens_size+1,:) = SWEFCS(ens_size+1,:) / ens_size
+    SNDFCS(ens_size+1,:) = SNDFCS(ens_size+1,:) / ens_size
+    SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) / ens_size
+    !SCF_Grid_Land(ens_size+1,:) = SCF_Grid_Land(ens_size+1,:) / ens_size
+
+    SWEANL(:,:) = SWEFCS(:,:)
+    SNDANL(:,:) = SNDFCS(:,:)
+    incr_at_Grid = 0.0
+
+    tmp = SUM(SWEFCS(ens_size+1,:),  Mask = (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>=0 )) &          !
+                        / COUNT (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>= 0)                 !
+    ! If (p_tRank==0)  
+    print*, "proc ", myrank,  ' ensemble mean SWE', tmp
+    tmp = SUM(SNDFCS(ens_size+1,:),  Mask = (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>=0 )) &              !
+                        / COUNT (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>= 0)     
+    ! If (p_tRank==0)  
+    print*, "proc ", myrank,  ' ensemble mean SND', tmp  
+    SNODENS_Grid(ens_size+1,:) =  SWEFCS(ens_size+1,:)/SNDFCS(ens_size+1,:)
+
+!=============================================================================================
+! 3. Update layers
+!=============================================================================================
+
+! fill in SWE and SND arrays   
+    SNDANL = SNDFCS + incr_at_Grid
+    ! avoid -ve anl
+    Where(SNDANL < 0.) SNDANL = 0.
+    ! d = swe/sndi
+    ! this is for writing outputs at observation and evaluation points
+    ! SWEANL = SNDANL * SNODENS_Grid
+    Do ie = 1, ens_size+1
+        WHERE (LANDMASK==1) SWEANL(ie,:) = SNDANL(ie,:) * SNODENS_Grid(ie,:)
+    Enddo
+    if (print_debg_info) then
+        PRINT*, "Weighted increment SWE/snwd from rank: ", MYRANK
+        PRINT*, incr_at_Grid       
+        PRINT*, "Analysis SNWD  from rank: ", MYRANK
+        PRINT*, SNDANL
+        PRINT*, "Analysis SWE  from rank: ", MYRANK
+        PRINT*, SWEANL
+    endif    
+    
+! ToDO: Better way to handle this? ! CSD - I'll fix this later.
+    ! Real data type size corresponding to mpi
+    rsize = SIZEOF(snodens) 
+    Call MPI_TYPE_SIZE(MPI_REAL, mpiReal_size, IERR) 
+    If (rsize == 4 ) then 
+        mpiReal_size = MPI_REAL4
+    elseif (rsize == 8 ) then 
+        mpiReal_size = MPI_REAL8
+    elseif (rsize == 16 ) then 
+        mpiReal_size = MPI_REAL16
+    else
+        PRINT*," Possible mismatch between Fortran Real ", rsize," and Mpi Real ", mpiReal_size
+        Stop
+    endif
+    isize = SIZEOF(N_sA) 
+    Call MPI_TYPE_SIZE(MPI_INTEGER, mpiInt_size, IERR) 
+    If (isize == 2 ) then 
+        mpiInt_size = MPI_INTEGER2
+    elseif (isize == 4 ) then 
+        mpiInt_size = MPI_INTEGER4
+    elseif (isize == 8 ) then 
+        mpiInt_size = MPI_INTEGER8
+    else
+        PRINT*," Possible mismatch between Fortran Int ", isize," and Mpi Int ", mpiInt_size
+        Stop
+    endif
+! outputs
+    if (MYRANK > 0) then  
+        call MPI_SEND(SNDANL(ens_size+1, :), LENSFC_proc, mpiReal_size, 0, &
+                        500*(MYRANK+1), MPI_COMM_WORLD, IERR) 
+    endif
+    if (MYRANK == 0) then
+        SNOANL_out(1:LENSFC_proc) = SNDANL(ens_size+1, :)         
+        Do ixy =  1, NPROCS - 1  ! sender proc index within tile group
+            if(ixy < N_sA_Ext) then   !p_tRank== 0) then 
+                dest_Aoffset = ixy * (N_sA + 1) + 1    ! 1
+                dest_Aoffset_end = dest_Aoffset + N_sA    !+ 1 
+                arLen = N_sA + 1 
+            else
+                dest_Aoffset = ixy * N_sA + N_sA_Ext + 1  !N_sA_Ext*(N_sA+1) + (MYRANK-N_sA_Ext)*N_sA     
+                dest_Aoffset_end = dest_Aoffset + N_sA - 1 
+                arLen = N_sA
+            endif
+            call MPI_RECV(SNOANL_out(dest_Aoffset:dest_Aoffset_end),arLen, mpiReal_size, &
+                        ixy, 500*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+        End do
+    endif
+    call MPI_BCAST(SNOANL_out, LENSFC, mpiReal_size, 0, MPI_COMM_WORLD, IERR) 
+    if (myrank==PRINTRANK) PRINT*,'Finished Data copy'
+    ! PRINT*, 'Finished Data copy', ' proc:', myrank
+    ! if (MYRANK > NUM_TILES - 1 ) goto 998   ! if(p_tRank /= 0 ) goto 998
+    noahmp_ensm_swe = 0.0
+    noahmp_ensm_snow_depth = 0.0
+    Do ie = 1, ens_size             
+        select case (snowUpdateOpt)
+        case (DO_NOTHING)
+            ! write(*,*) " proc ", myrank, " Option 0: do nothing"
+            noahmp(ie)%swe = SWEANL(ie,:)
+            noahmp(ie)%snow_depth = SNDANL(ie,:)
+        case (TOP_LAYER)
+            ! write(*,*) " proc ",myrank, " Option 1: UpdateTopLayer"
+            call UpdateTopLayer(myrank, LENSFC_proc, noahmp(ie), &
+            incr_at_Grid(ie,:), SNDANL(ie,:), LANDMASK)
+        case (BOTTOM_LAYER)
+            ! write(*,*) " proc ",myrank, " Option 2: UpdateBottomLayer"
+            call UpdateBottomLayer(myrank, LENSFC_proc, noahmp(ie), &
+            incr_at_Grid(ie,:), SNDANL(ie,:), LANDMASK)
+        case (ALL_LAYERS)
+            ! write(*,*) " proc ",myrank, " Option 3: UpdateAllLayers"
+            ! call UpdateAllLayers_Ens(ie, myrank, LENSFC_proc, noahmp(ie), &
+            ! incr_at_Grid(ie,:), SNDANL(ie,:), SNODENS_Grid(ie,:), LANDMASK)
+            call UpdateAllLayers(myrank, LENSFC_proc, noahmp(ie), incr_at_Grid(ie,:), &
+                            SNDANL(ie,:), SNODENS_Grid(ie,:), LANDMASK)
+        case default
+            write(*,*) "choose a valid partition option"
+            stop
+        end select 
+        ! avoid -ve anl
+        ! print*, " proc ", myrank, "done partitioning ens ", ie
+        Where(noahmp(ie)%swe < 0) noahmp(ie)%swe = 0.
+        Where(noahmp(ie)%snow_depth < 0) noahmp(ie)%snow_depth = 0.
+        ! ens mean
+        noahmp_ensm_swe = noahmp_ensm_swe + noahmp(ie)%swe
+        noahmp_ensm_snow_depth = noahmp_ensm_snow_depth + noahmp(ie)%snow_depth
+        ! print*, " proc ", myrank, "done loop ", ie
+    enddo
+    ! SUM(SNDFCS(1:ens_size, jndx)) / ens_size
+    noahmp_ensm_swe = noahmp_ensm_swe / ens_size
+    noahmp_ensm_snow_depth = noahmp_ensm_snow_depth / ens_size
+    if (print_debg_info .and. myrank==PRINTRANK) then
+        print*, "noah SWE ", noahmp_ensm_swe
+        print*, "noah snowdepth", noahmp_ensm_snow_depth
+    endif
+    ! !Compute updated snocov 
+    !Call update_snow_cover_fraction(LENSFC, SNOANL, VETFCS, anl_fSCA)
+    ! update ensemble scf
+    SNODENS_Grid(ens_size+1,:) =  noahmp_ensm_swe/noahmp_ensm_snow_depth
+    SCF_Grid(ens_size+1,:) = 0.0
+    Do ie = 1, ens_size 
+        ! grid snow density
+        ! call calc_density(LENSFC_proc, lsm_type, LANDMASK, noahmp(ie)%swe, &
+        ! noahmp(ie)%snow_depth, noahmp(ie)%temperature_soil, SNODENS_Grid(ie,:))             
+        call calcSCF_noahmp(LENSFC_proc, VETFCS, SNODENS_Grid(ie,:), &
+            noahmp(ie)%snow_depth, SCF_Grid(ie, :)) 
+        SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) + SCF_Grid(ie,:)
+!TPDO: update  sncovr1 "snow cover over land" 
+    Enddo 
+    SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) / ens_size
+    
+    ! write outputs	
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+    if (myrank==PRINTRANK) then 
+        PRINT*,"proc ", myrank, "starting writing output"
+    endif
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+
+    da_out_file = trim(output_prefix)// TRIM(y_str)//TRIM(m_str)//TRIM(d_str)//"_18.nc"  !     
+    call Write_DA_Outputs_Add_Ens_Increment(da_out_file, vector_restart_prefix, &
+            y_str, m_str, d_str, h_str, &        
+            MYRANK, NPROCS, LENSFC, LENSFC_proc, ens_size,  &
+            N_sA, N_sA_Ext, mpiReal_size, mpiInt_size,     &
+            SNDnoDA, SWEnoDA, noahmp,   &
+            SNDFCS,  SWEFCS, SNDANL, SWEANL, incr_at_Grid,   &  ! 
+            SNODENS_Grid, SCF_Grid, &  ! SAVe this as snowc
+            noahmp_ensm_swe, noahmp_ensm_snow_depth) 
+! if (myrank==PRINTRANK) 
+    PRINT*,"proc ", myrank, "finished writing output"
+! endif
+998 CONTINUE
+    ! clean up      
+    Do ie = 1, ens_size
+        if (allocated(noahmp(ie)%swe))   deallocate(noahmp(ie)%swe)
+        if (allocated(noahmp(ie)%snow_depth))  deallocate(noahmp(ie)%snow_depth)
+        if (allocated(noahmp(ie)%active_snow_layers)) deallocate(noahmp(ie)%active_snow_layers)
+        if (allocated(noahmp(ie)%swe_previous))  deallocate(noahmp(ie)%swe_previous)
+        if (allocated(noahmp(ie)%snow_soil_interface))  deallocate(noahmp(ie)%snow_soil_interface)
+        if (allocated(noahmp(ie)%temperature_snow))  deallocate(noahmp(ie)%temperature_snow)
+        if (allocated(noahmp(ie)%snow_ice_layer))  deallocate(noahmp(ie)%snow_ice_layer)
+        if (allocated(noahmp(ie)%snow_liq_layer))  deallocate(noahmp(ie)%snow_liq_layer)
+        if (allocated(noahmp(ie)%temperature_soil))  deallocate(noahmp(ie)%temperature_soil)
+    End do   
+    ! Call UPDATEtime(IY_loc, IM_loc, ID_loc, IH_real, dT_Asssim)
+    ! IH_loc = INT(IH_real)    ! (for the obs. available currently) this should be 18
+    if (myrank==PRINTRANK) PRINT*,'Finished EnSRF DA at datetime: ', y_str, m_str, d_str, h_str
+
+999 CONTINUE
+    !PRINT*,'Finished OI DA ON RANK: ', MYRANK
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
+
+    !STOP
+
+    RETURN
+
+END subroutine Add_Ensemble_Snow_Increments_NOAHMP
+
 subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, & !num_assim_steps, dT_Asssim,  & 
                 LENSFC, IVEGSRC, PERCENT_OBS_WITHHELD, & 
                 L_horz , h_ver, obs_tolerance, max_ele_diff, &
@@ -7837,6 +8218,474 @@ End subroutine map_outputs_toObs
     enddo
              
  End subroutine Write_DA_Outputs_ens_vect
+
+  Subroutine Write_DA_Outputs_Add_Ens_Increment(da_output_file, vector_restart_prefix, &
+        y_str, m_str, d_str, h_str, &
+        MYRANK, NPROCS, LENSFC, LENSFC_proc, ens_size, &
+        N_sA, N_sA_Ext, mpiReal_size, mpiInt_size,    &
+        SNDnoDA, SWEnoDA,  noahmp,   &
+        SNDFCS, SWEFCS, SNDANL, SWEANL, incr_at_Grid,   &  !
+        SNODENS_Grid, SCF_Grid, &
+        noahmp_ensm_swe, noahmp_ensm_snow_depth)             
+    ! SNDFCS_Ens, SWEFCS_Ens, incr_at_Grid_ensM, anl_at_Grid_ens)
+    !------------------------------------------------------------------
+    implicit none
+    include "mpif.h"
+    
+    CHARACTER(LEN=*), Intent(In)    :: da_output_file, vector_restart_prefix 
+    CHARACTER(LEN=*), Intent(In)    :: y_str, m_str, d_str, h_str
+    integer, intent(in)     :: myrank, NPROCS, lensfc, LENSFC_proc, ens_size 
+    integer, intent(in)     :: N_sA, N_sA_Ext, mpiReal_size, mpiInt_size
+    Real, intent(in)        :: SNDnoDA(LENSFC_proc), SWEnoDA(LENSFC_proc)
+    type(noahmp_type)       :: noahmp(ens_size)    
+
+    real, intent(in)  :: SNDFCS(ens_size+1,LENSFC_proc), SWEFCS(ens_size+1,LENSFC_proc), &
+                        SNDANL(ens_size+1,LENSFC_proc), SWEANL(ens_size+1,LENSFC_proc), &
+                        incr_at_Grid(ens_size+1, LENSFC_proc)
+
+    real, intent(in) :: SNODENS_Grid(ens_size+1, LENSFC_proc), SCF_Grid(ens_size+1, LENSFC_proc)
+    
+    Real, intent(in) :: noahmp_ensm_swe(LENSFC_proc), noahmp_ensm_snow_depth(LENSFC_proc)
+
+    integer            :: fsize=65536, inital=0
+    integer            :: header_buffer_val = 16384
+    integer            :: dims_2d(2), dims_strt(2), dims_end(2)
+    integer            :: error, i, ncid
+    integer    :: dim_x, dim_ens, dim_sn, dim_snso
+    integer    :: dim_no, id_no
+    integer    :: id_x, id_ens 
+    integer    :: id_snwd_noda, id_swe_noda    !, id_snwd_noda_eval, id_swe_noda_eval
+    integer    :: id_snwd_forc, id_swe_forc 
+    integer    :: id_incr, id_snwd, id_swe
+    integer    :: id_den, id_scf
+    integer    :: id_swe_noah, id_snd_noah
+    
+    real(kind=4)                :: times
+    real(kind=4), allocatable   :: x_data(:)  !, y_data(:)
+    integer                     :: dims_3d(3), iv, varid
+    integer     :: id_weasd, id_sndpth_m, id_snowxy, id_sneqvoxy, id_stc, &
+                    id_zsnsoxy, id_tsnoxy, id_snicexy, id_snliqxy
+
+    Real  :: DUMMY1(lensfc), DUMMY2(lensfc), DUMMY3(lensfc), DUMMY4(lensfc), DUMMY45(lensfc)
+    Real    :: DUMMY5(lensfc, 7), DUMMY6(lensfc, 3), &
+               DUMMY7(lensfc, 3), DUMMY8(lensfc, 3), DUMMY9(lensfc), DUMMY10(lensfc)
+
+    Real    :: DUMMY11(lensfc), DUMMY12(lensfc)
+
+    integer :: DUMMY13(LENSFC)
+    
+    Integer     :: dest_Aoffset, dest_Aoffset_end, arLen, IERR, ixy, ie, jndx
+
+    LOGICAL     :: file_exists
+    ! CHARACTER(LEN=2)      :: ensCH 
+    CHARACTER(LEN=4)      :: ensCH
+    CHARACTER(LEN=500)    :: restart_filename 
+    
+
+    ! print*,"Process ", myrank, "writing output data to: ",trim(output_file)
+    !--- create the file
+    if (myrank ==0) then 
+        error = NF90_CREATE(trim(da_output_file), IOR(NF90_NETCDF4,NF90_CLASSIC_MODEL), ncid, initialsize=inital, chunksize=fsize)
+        call netcdf_err(error, 'CREATING FILE='//trim(da_output_file) )     
+        ! print*,"Process ", myrank, "created file: ",trim(output_file)
+        !--- define dimensions
+        error = nf90_def_dim(ncid, 'location', lensfc, dim_x)
+        call netcdf_err(error, 'DEFINING location DIMENSION' )
+        !ens
+        error = nf90_def_dim(ncid, 'Ensemble', ens_size+1, dim_ens)
+        call netcdf_err(error, 'DEFINING Ensemble DIMENSION' )
+
+        !--- define fields
+        ! No DA 
+        error = nf90_def_var(ncid, 'SWE_Forecast_NoDA', NF90_DOUBLE, dim_x, id_swe_noda)
+        call netcdf_err(error, 'DEFINING SWE_Forecast_NoDA' )
+        error = nf90_put_att(ncid, id_swe_noda, "long_name", "Forecast Snow Water Equivalent No DA")
+        call netcdf_err(error, 'DEFINING SWE_Forecast_NoDA LONG NAME' )
+        error = nf90_put_att(ncid, id_swe_noda, "units", "mm")
+        call netcdf_err(error, 'DEFINING SWE_Forecast_NoDA UNITS' )
+
+        error = nf90_def_var(ncid, 'SND_Forecast_NoDA', NF90_DOUBLE, dim_x, id_snwd_noda)
+        call netcdf_err(error, 'DEFINING SND_Forecast_NoDA' )
+        error = nf90_put_att(ncid, id_snwd_noda, "long_name", "Forecast Snow Depth No DA")
+        call netcdf_err(error, 'DEFINING SND_Forecast_NoDA LONG NAME' )
+        error = nf90_put_att(ncid, id_snwd_noda, "units", "mm")
+        call netcdf_err(error, 'DEFINING SND_Forecast_NoDA UNITS' )
+    ! noaa ensemble mean 
+        error = nf90_def_var(ncid, 'SWE_EnsM_Noah', NF90_DOUBLE, dim_x, id_swe_noah)
+        call netcdf_err(error, 'DEFINING SWE_EnsM_Noah' )
+        error = nf90_put_att(ncid, id_swe_noah, "long_name", "Noah Ensemble Mean Snow Water Equivalent")
+        call netcdf_err(error, 'DEFINING SWE_EnsM_Noah LONG NAME' )
+        error = nf90_put_att(ncid, id_swe_noah, "units", "mm")
+        call netcdf_err(error, 'DEFINING SWE_EnsM_Noah UNITS' )
+       
+        error = nf90_def_var(ncid, 'SND_EnsM_Noah', NF90_DOUBLE, dim_x, id_snd_noah)
+        call netcdf_err(error, 'DEFINING SND_EnsM_Noah' )
+        error = nf90_put_att(ncid, id_snd_noah, "long_name", "Noah Ensemble Mean Snow Depth")
+        call netcdf_err(error, 'DEFINING SND_EnsM_Noah LONG NAME' )
+        error = nf90_put_att(ncid, id_snd_noah, "units", "mm")
+        call netcdf_err(error, 'DEFINING SND_EnsM_Noah UNITS' )
+
+        dims_2d(1) = dim_ens 
+        ! dims_3d(2) = dim_ens
+        dims_2d(2) = dim_x
+        error = nf90_def_var(ncid, 'SWE_Forecast', NF90_DOUBLE, dims_2d, id_swe_forc)
+        call netcdf_err(error, 'DEFINING SWE_Forecast' )
+        error = nf90_put_att(ncid, id_swe_forc, "long_name", "Forecast Snow Water Equivalent")
+        call netcdf_err(error, 'DEFINING SWE Forecast LONG NAME' )
+        error = nf90_put_att(ncid, id_swe_forc, "units", "mm")
+        call netcdf_err(error, 'DEFINING SWE Forecast UNITS' )
+
+        error = nf90_def_var(ncid, 'SND_Forecast', NF90_DOUBLE, dims_2d, id_snwd_forc)
+        call netcdf_err(error, 'DEFINING SND Forecast' )
+        error = nf90_put_att(ncid, id_snwd_forc, "long_name", "Forecast Snow Depth")
+        call netcdf_err(error, 'DEFINING SND Forecast LONG NAME' )
+        error = nf90_put_att(ncid, id_snwd_forc, "units", "mm")
+        call netcdf_err(error, 'DEFINING SND Forecast UNITS' )
+
+        error = nf90_def_var(ncid, 'SWE_Analysis', NF90_DOUBLE, dims_2d, id_swe)
+        call netcdf_err(error, 'DEFINING SWE_Analysis' )
+        error = nf90_put_att(ncid, id_swe, "long_name", "Analysis Snow Water Equivalent")
+        call netcdf_err(error, 'DEFINING SWE LONG NAME' )
+        error = nf90_put_att(ncid, id_swe, "units", "mm")
+        call netcdf_err(error, 'DEFINING SWE UNITS' )
+        !
+        error = nf90_def_var(ncid, 'SND_Analysis', NF90_DOUBLE, dims_2d, id_snwd)
+        call netcdf_err(error, 'DEFINING SND Analyis' )
+        error = nf90_put_att(ncid, id_snwd, "long_name", "Analysis Snow Depth")
+        call netcdf_err(error, 'DEFINING SND Analysis LONG NAME' )
+        error = nf90_put_att(ncid, id_snwd, "units", "mm")
+        call netcdf_err(error, 'DEFINING SND Analysis UNITS' )
+        !
+        error = nf90_def_var(ncid, 'DA_Increment', NF90_DOUBLE, dims_2d, id_incr)
+        call netcdf_err(error, 'DEFINING DA_Increment' )
+        error = nf90_put_att(ncid, id_incr, "long_name", "DA_Increment at model grid")
+        call netcdf_err(error, 'DEFINING DA_Increment LONG NAME' )
+        error = nf90_put_att(ncid, id_incr, "units", "mm")
+        call netcdf_err(error, 'DEFINING DA_Increment UNITS' )
+
+        error = nf90_def_var(ncid, 'DA_Density', NF90_DOUBLE, dims_2d, id_den)
+        call netcdf_err(error, 'DEFINING DA_Density' )
+        error = nf90_put_att(ncid, id_den, "long_name", "DA_Density at model grid")
+        call netcdf_err(error, 'DEFINING DA_Density LONG NAME' )
+        error = nf90_put_att(ncid, id_den, "units", "kg/m3")
+        call netcdf_err(error, 'DEFINING DA_Density UNITS' )
+        
+        error = nf90_def_var(ncid, 'DA_SCF', NF90_DOUBLE, dims_2d, id_scf)
+        call netcdf_err(error, 'DEFINING DA_SCF' )
+        error = nf90_put_att(ncid, id_scf, "long_name", "DA_SCF at model grid")
+        call netcdf_err(error, 'DEFINING DA_SCF LONG NAME' )
+        error = nf90_put_att(ncid, id_scf, "units", "-")
+        call netcdf_err(error, 'DEFINING DA_SCF UNITS' )
+
+        error = nf90_enddef(ncid, header_buffer_val,4,0,4)
+        call netcdf_err(error, 'DEFINING HEADER' )
+    endif
+
+    if (MYRANK > 0) then
+        call MPI_SEND(SNDnoDA, LENSFC_proc, mpiReal_size, 0,   &
+                                MYRANK+1, MPI_COMM_WORLD, IERR) 
+        call MPI_SEND(SWEnoDA, LENSFC_proc, mpiReal_size, 0,   &
+                                100*(MYRANK+1), MPI_COMM_WORLD, IERR)
+        call MPI_SEND(noahmp_ensm_swe, LENSFC_proc, mpiReal_size, 0,   &
+                                900*(MYRANK+1), MPI_COMM_WORLD, IERR) 
+        call MPI_SEND(noahmp_ensm_snow_depth, LENSFC_proc, mpiReal_size, 0,   &
+                                1000*(MYRANK+1), MPI_COMM_WORLD, IERR)     
+    Endif
+    if (MYRANK == 0) then        
+        DUMMY1(1:LENSFC_proc) = SNDnoDA
+        DUMMY2(1:LENSFC_proc) = SWEnoDA
+        DUMMY9(1:LENSFC_proc) = noahmp_ensm_swe 
+        DUMMY10(1:LENSFC_proc) = noahmp_ensm_snow_depth
+
+        Do ixy =  1, NPROCS - 1   ! sender proc index within tile group
+            if(ixy < N_sA_Ext) then   !p_tRank== 0) then 
+                dest_Aoffset = ixy * (N_sA + 1) + 1    ! 1
+                dest_Aoffset_end = dest_Aoffset + N_sA    !+ 1 
+                arLen = N_sA + 1  
+            else
+                dest_Aoffset = ixy * N_sA + N_sA_Ext + 1  !N_sA_Ext*(N_sA+1) + (MYRANK-N_sA_Ext)*N_sA     
+                dest_Aoffset_end = dest_Aoffset + N_sA - 1 
+                arLen = N_sA
+            endif
+            call MPI_RECV(DUMMY1(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                            ixy+1, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+            call MPI_RECV(DUMMY2(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                            100*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)         
+
+            call MPI_RECV(DUMMY9(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                            900*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+            call MPI_RECV(DUMMY10(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                            1000*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+        End do
+        !no da 
+        error = nf90_put_var(ncid, id_snwd_noda, DUMMY1)  !, dims_strt, dims_end)
+        call netcdf_err(error, 'WRITING SND Forecast NoDA RECORD' )
+        ! dum2d = reshape(SWEFCS, (/idim,jdim/))
+        error = nf90_put_var(ncid, id_swe_noda, DUMMY2)   !, dims_strt, dims_end)
+        call netcdf_err(error, 'WRITING SWE Forecast NoDA RECORD' )
+        
+        error = nf90_put_var(ncid, id_swe_noah, DUMMY9)   !, dims_strt, dims_end)
+        call netcdf_err(error, 'WRITING id_swe_noah RECORD' )
+        error = nf90_put_var(ncid, id_snd_noah, DUMMY10)   !, dims_strt, dims_end)
+        call netcdf_err(error, 'WRITING id_snd_noah RECORD' )
+
+        print*, "done writing ens mean outs"
+    endif
+    
+! allocate(dum2d(idim,jdim))
+    Do ie=1, ens_size+1
+        dims_strt(1) = ie
+        dims_strt(2) = 1
+        dims_end(1) = 1    !ens_size
+        dims_end(2) = lensfc
+
+        if (MYRANK > 0) then
+            call MPI_SEND(SNDFCS(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                400*(MYRANK+1), MPI_COMM_WORLD, IERR)  
+            call MPI_SEND(SWEFCS(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                    500*(MYRANK+1), MPI_COMM_WORLD, IERR)   
+            call MPI_SEND(SNDANL(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                600*(MYRANK+1), MPI_COMM_WORLD, IERR)  
+            call MPI_SEND(SWEANL(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                700*(MYRANK+1), MPI_COMM_WORLD, IERR)   
+            call MPI_SEND(incr_at_Grid(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                800*(MYRANK+1), MPI_COMM_WORLD, IERR)      
+                                
+            call MPI_SEND(SNODENS_Grid(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                1100*(MYRANK+1), MPI_COMM_WORLD, IERR)      
+            call MPI_SEND(SCF_Grid(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                1200*(MYRANK+1), MPI_COMM_WORLD, IERR)      
+        Endif
+        if (MYRANK == 0) then
+            DUMMY1(1:LENSFC_proc) = SNDFCS(ie,:)
+            DUMMY2(1:LENSFC_proc) = SWEFCS(ie,:)
+            DUMMY3(1:LENSFC_proc) = SNDANL(ie,:)
+            DUMMY4(1:LENSFC_proc) = SWEANL(ie,:)
+            DUMMY9(1:LENSFC_proc) = incr_at_Grid(ie,:)
+
+            DUMMY11(1:LENSFC_proc) = SNODENS_Grid(ie,:)
+            DUMMY12(1:LENSFC_proc) = SCF_Grid(ie,:)
+            ! DUMMY13(1:LENSFC_proc, :) = index_obs_assmilated(:, :)
+            Do ixy =  1, NPROCS - 1   ! sender proc index within tile group
+                if(ixy < N_sA_Ext) then   !p_tRank== 0) then 
+                    dest_Aoffset = ixy * (N_sA + 1) + 1    ! 1
+                    dest_Aoffset_end = dest_Aoffset + N_sA    !+ 1 
+                    arLen = N_sA + 1  
+                else
+                    dest_Aoffset = ixy * N_sA + N_sA_Ext + 1  !N_sA_Ext*(N_sA+1) + (MYRANK-N_sA_Ext)*N_sA     
+                    dest_Aoffset_end = dest_Aoffset + N_sA - 1 
+                    arLen = N_sA
+                endif
+                call MPI_RECV(DUMMY1(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                400*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY2(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                500*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY3(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                600*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY4(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                700*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY9(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                800*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+
+                call MPI_RECV(DUMMY11(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                1100*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY12(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                1200*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+            End do
+            error = nf90_put_var(ncid, id_snwd_forc, DUMMY1, dims_strt, dims_end)                                
+            call netcdf_err(error, 'WRITING SND Forecast RECORD')
+            error = nf90_put_var(ncid, id_swe_forc, DUMMY2, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING SWE Forecast RECORD')
+            error = nf90_put_var(ncid, id_snwd, DUMMY3, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING SND Analysis RECORD')
+            error = nf90_put_var(ncid, id_swe, DUMMY4, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING SWE Analysis RECORD')
+            error = nf90_put_var(ncid, id_incr, DUMMY9, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING incr_atGrid RECORD')
+
+            error = nf90_put_var(ncid, id_den, DUMMY11, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING id_den RECORD')
+            error = nf90_put_var(ncid, id_scf, DUMMY12, dims_strt, dims_end)
+            call netcdf_err(error, 'WRITING id_scf RECORD')
+
+            print*, "done writing SWE SND Ens forc, ens ", ie
+        endif
+    End do
+
+    if (MYRANK == 0) then
+        error = nf90_close(ncid)
+        call netcdf_err(error, 'closing DA file' )
+        print*, "proc 0 done writing DA file"
+    endif
+
+    Do ie=1, ens_size
+        if (MYRANK > 0) then
+            call MPI_SEND(noahmp(ie)%swe, LENSFC_proc, mpiReal_size, 0,   &
+                                    MYRANK+1, MPI_COMM_WORLD, IERR) 
+            call MPI_SEND(noahmp(ie)%snow_depth, LENSFC_proc, mpiReal_size, 0,   &
+                                    100*(MYRANK+1), MPI_COMM_WORLD, IERR)
+            call MPI_SEND(noahmp(ie)%active_snow_layers, LENSFC_proc, mpiReal_size, 0,   &
+                                    200*(MYRANK+1), MPI_COMM_WORLD, IERR)
+            call MPI_SEND(noahmp(ie)%swe_previous, LENSFC_proc, mpiReal_size, 0,   &
+                                    300*(MYRANK+1), MPI_COMM_WORLD, IERR)
+            Do iv=1, 7                        
+                call MPI_SEND(noahmp(ie)%snow_soil_interface(:,iv), LENSFC_proc, mpiReal_size, 0,   &
+                                400*(MYRANK+1) + 10*iv, MPI_COMM_WORLD, IERR)
+            Enddo
+            Do iv=1, 3
+                call MPI_SEND(noahmp(ie)%temperature_snow(:,iv), LENSFC_proc, mpiReal_size, 0,   &
+                                        500*(MYRANK+1) + 20*iv, MPI_COMM_WORLD, IERR)
+                call MPI_SEND(noahmp(ie)%snow_ice_layer(:,iv), LENSFC_proc, mpiReal_size, 0,   &
+                                        600*(MYRANK+1) + 30*iv, MPI_COMM_WORLD, IERR)
+                call MPI_SEND(noahmp(ie)%snow_liq_layer(:,iv), LENSFC_proc, mpiReal_size, 0,   &
+                                        700*(MYRANK+1) + 40*iv, MPI_COMM_WORLD, IERR)
+            enddo
+            call MPI_SEND(noahmp(ie)%temperature_soil, LENSFC_proc, mpiReal_size, 0,   &
+                                        800*(MYRANK+1), MPI_COMM_WORLD, IERR)
+
+            call MPI_SEND(SCF_Grid(ie,:), LENSFC_proc, mpiReal_size, 0,   &
+                                1300*(MYRANK+1), MPI_COMM_WORLD, IERR)      
+        Endif
+        if (MYRANK == 0) then
+            DUMMY1(1:LENSFC_proc) = noahmp(ie)%swe
+            DUMMY2(1:LENSFC_proc) = noahmp(ie)%snow_depth
+            DUMMY3(1:LENSFC_proc) = noahmp(ie)%active_snow_layers
+            DUMMY4(1:LENSFC_proc) = noahmp(ie)%swe_previous
+
+            DUMMY12(1:LENSFC_proc) = SCF_Grid(ie,:)
+
+            Do iv=1, 7 
+                DUMMY5(1:LENSFC_proc, iv) = noahmp(ie)%snow_soil_interface(:,iv)
+            Enddo
+            Do iv=1, 3
+                DUMMY6(1:LENSFC_proc, iv) = noahmp(ie)%temperature_snow(:,iv)
+                DUMMY7(1:LENSFC_proc, iv) = noahmp(ie)%snow_ice_layer(:,iv)
+                DUMMY8(1:LENSFC_proc, iv) = noahmp(ie)%snow_liq_layer(:,iv)
+            Enddo
+            DUMMY9(1:LENSFC_proc) = noahmp(ie)%temperature_soil
+            Do ixy =  1, NPROCS - 1   ! sender proc index within tile group
+                if(ixy < N_sA_Ext) then   !p_tRank== 0) then 
+                    dest_Aoffset = ixy * (N_sA + 1) + 1    ! 1
+                    dest_Aoffset_end = dest_Aoffset + N_sA    !+ 1 
+                    arLen = N_sA + 1  
+                else
+                    dest_Aoffset = ixy * N_sA + N_sA_Ext + 1  !N_sA_Ext*(N_sA+1) + (MYRANK-N_sA_Ext)*N_sA     
+                    dest_Aoffset_end = dest_Aoffset + N_sA - 1 
+                    arLen = N_sA
+                endif
+                call MPI_RECV(DUMMY1(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                ixy+1, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY2(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                100*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY3(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                200*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                call MPI_RECV(DUMMY4(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                300*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                Do iv=1, 7 
+                    call MPI_RECV(DUMMY5(dest_Aoffset:dest_Aoffset_end, iv), arLen, mpiReal_size, ixy,      &
+                                400*(ixy+1) + 10*iv, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                Enddo
+                Do iv=1, 3
+                    call MPI_RECV(DUMMY6(dest_Aoffset:dest_Aoffset_end, iv), arLen, mpiReal_size, ixy,      &
+                                500*(ixy+1) + 20*iv, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                    call MPI_RECV(DUMMY7(dest_Aoffset:dest_Aoffset_end, iv), arLen, mpiReal_size, ixy,      &
+                                600*(ixy+1) + 30*iv, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                    call MPI_RECV(DUMMY8(dest_Aoffset:dest_Aoffset_end, iv), arLen, mpiReal_size, ixy,      &
+                                700*(ixy+1) + 40*iv, MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+                Enddo
+                call MPI_RECV(DUMMY9(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                800*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+
+                call MPI_RECV(DUMMY12(dest_Aoffset:dest_Aoffset_end), arLen, mpiReal_size, ixy,      &
+                                1300*(ixy+1), MPI_COMM_WORLD, MPI_STATUS_IGNORE, IERR)
+            End do
+
+        ! REstart file
+            ! WRITE(ensCH, '(I2.2)') ie
+            WRITE(ensCH, '(I0)') ie
+            restart_filename=TRIM(vector_restart_prefix)//"/ens"//TRIM(ensCH)// &
+            "/ufs_land_restart."// &
+            TRIM(y_str)//"-"//TRIM(m_str)//"-"//TRIM(d_str)//"_"//TRIM(h_str)//&
+            "-00-00.nc" 
+
+            INQUIRE(FILE=trim(restart_filename), EXIST=file_exists)
+            if (.not. file_exists) then 
+                print *, 'error,file does not exist', &   
+                        trim(restart_filename) , ' exiting'
+                call MPI_ABORT(MPI_COMM_WORLD, 10) ! CSD - add proper error trapping?
+            endif
+            
+            error = nf90_open(trim(restart_filename), NF90_WRITE, ncid)
+            call netcdf_err(error, 'opening restart file' )
+        
+            ! Start writing restart file
+            error = nf90_inq_varid(ncid, "snow_water_equiv", varid)
+            call netcdf_err(error, 'getting varid snow_water_equiv' )
+            error = nf90_put_var(ncid, varid , DUMMY1   , &
+                start = (/1,1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing snow_water_equiv' )
+
+            error = nf90_inq_varid(ncid, "snow_depth", varid)
+            call netcdf_err(error, 'getting varid snow_depth' )
+            error = nf90_put_var(ncid, varid , DUMMY2,  &
+                start = (/1,1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing snow_depth' )
+
+            error = nf90_inq_varid(ncid, "active_snow_levels", varid)
+            call netcdf_err(error, 'getting varid active_snow_levels' )
+            error = nf90_put_var(ncid, varid , DUMMY3  , &
+                start = (/1,1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing active_snow_levels' )
+
+            error = nf90_inq_varid(ncid, "snow_water_equiv_old", varid)
+            call netcdf_err(error, 'getting varid snow_water_equiv_old' )
+            error = nf90_put_var(ncid, varid , DUMMY4, &
+                start = (/1,1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing snow_water_equiv_old' )
+
+            error = nf90_inq_varid(ncid, "interface_depth", varid)
+            call netcdf_err(error, 'getting varid interface_depth' )
+            error = nf90_put_var(ncid, varid, DUMMY5, &
+                start = (/1, 1, 1/), count = (/lensfc, 7, 1/))
+            call netcdf_err(error, 'writing interface_depth' )
+
+            error = nf90_inq_varid(ncid, "temperature_snow", varid)
+            call netcdf_err(error, 'getting varid temperature_snow' )
+            error = nf90_put_var(ncid, varid, DUMMY6, &
+                start = (/1, 1, 1/), count = (/lensfc, 3, 1/))
+            call netcdf_err(error, 'writing temperature_snow' )
+
+            error = nf90_inq_varid(ncid, "snow_level_ice", varid)
+            call netcdf_err(error, 'getting varid snow_level_ice' )
+            error = nf90_put_var(ncid, varid, DUMMY7, &
+                start = (/1, 1, 1/), count = (/lensfc, 3, 1/))
+            call netcdf_err(error, 'writing snow_level_ice' )
+
+            error = nf90_inq_varid(ncid, "snow_level_liquid", varid)
+            call netcdf_err(error, 'getting varid snow_level_liquid' )
+            error = nf90_put_var(ncid, varid, DUMMY8, &
+                start = (/1, 1, 1/), count = (/lensfc, 3, 1/))
+            call netcdf_err(error, 'writing snow_level_liquid' )
+
+            error = nf90_inq_varid(ncid, "temperature_ground", varid)
+            call netcdf_err(error, 'getting varid temperature_ground' )
+            error = nf90_put_var(ncid, varid, DUMMY9, &
+                start = (/1, 1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing temperature_ground')
+
+            error = nf90_inq_varid(ncid, "snow_cover_fraction", varid)
+            call netcdf_err(error, 'getting varid snow_cover_fraction' )
+            error = nf90_put_var(ncid, varid, DUMMY12, &
+                start = (/1, 1/), count = (/lensfc, 1/))
+            call netcdf_err(error, 'writing snow_cover_fraction')
+
+            error = nf90_close(ncid)
+            call netcdf_err(error, 'closing restart file' )
+
+        endif
+    enddo
+             
+ End subroutine Write_DA_Outputs_Add_Ens_Increment
 
  Subroutine Write_DA_Outputs_restart_vector(myrank, NPROCS, da_output_file, restart_filename, &
             lensfc, LENSFC_land, num_stn, num_Eval, max_num_nearStn, &            
