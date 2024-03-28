@@ -4421,7 +4421,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 !=============================================================================================
   
     ! READ THE INPUT SURFACE DATA from vector and no da outputs
-    noda_inp_path=TRIM(vector_noda_prefix)//"/ufs_land_output."// &
+    noda_inp_path=TRIM(vector_noda_prefix)//"/ufs_land_restart."// & 
         TRIM(y_str)//"-"//TRIM(m_str)//"-"//TRIM(d_str)//"_"//TRIM(h_str)//"-00-00.nc"
 
 ! Read vector increments first: Note increment files have save variable name as restarts 
