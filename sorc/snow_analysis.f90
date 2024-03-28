@@ -4437,6 +4437,10 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
         incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) + incr_at_Grid(ie,:)
     End do   
     incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) / ens_size  
+    tmp = SUM(incr_at_Grid(ens_size+1,:),  Mask = (LANDMASK==1))  & !todo: mask nan .and. incr_at_Grid(ens_size+1,:)>=0 )) &              !
+                        / COUNT (LANDMASK==1)  ! .and. SNDFCS(ens_size+1,:)>= 0)     
+    ! If (p_tRank==0)  
+    print*, "proc ", myrank,  ' ensemble mean increment', tmp 
 
     Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_restart_prefix, noda_inp_path, &
                     y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
@@ -4464,10 +4468,6 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) / ens_size
     !SCF_Grid_Land(ens_size+1,:) = SCF_Grid_Land(ens_size+1,:) / ens_size
 
-    SWEANL(:,:) = SWEFCS(:,:)
-    SNDANL(:,:) = SNDFCS(:,:)
-    incr_at_Grid = 0.0
-
     tmp = SUM(SWEFCS(ens_size+1,:),  Mask = (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>=0 )) &          !
                         / COUNT (LANDMASK==1 .and. SNDFCS(ens_size+1,:)>= 0)                 !
     ! If (p_tRank==0)  
@@ -4489,6 +4489,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     ! d = swe/sndi
     ! this is for writing outputs at observation and evaluation points
     ! SWEANL = SNDANL * SNODENS_Grid
+    SWEANL(:,:) = SWEFCS(:,:)
     Do ie = 1, ens_size+1
         WHERE (LANDMASK==1) SWEANL(ie,:) = SNDANL(ie,:) * SNODENS_Grid(ie,:)
     Enddo
