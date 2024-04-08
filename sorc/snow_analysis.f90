@@ -4588,6 +4588,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
         noahmp_ensm_snow_depth = noahmp_ensm_snow_depth + noahmp(ie)%snow_depth
         ! print*, " proc ", myrank, "done loop ", ie
     enddo
+    print*, " proc ", myrank, "done snow partioning"
     ! SUM(SNDFCS(1:ens_size, jndx)) / ens_size
     noahmp_ensm_swe = noahmp_ensm_swe / ens_size
     noahmp_ensm_snow_depth = noahmp_ensm_snow_depth / ens_size
@@ -4598,18 +4599,20 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     ! !Compute updated snocov 
     !Call update_snow_cover_fraction(LENSFC, SNOANL, VETFCS, anl_fSCA)
     ! update ensemble scf
-    SNODENS_Grid(ens_size+1,:) =  noahmp_ensm_swe/noahmp_ensm_snow_depth
+    SNODENS_Grid(ens_size+1,:) = 0.0  ! noahmp_ensm_swe/noahmp_ensm_snow_depth
     SCF_Grid(ens_size+1,:) = 0.0
     Do ie = 1, ens_size 
         ! grid snow density
-        ! call calc_density(LENSFC_proc, lsm_type, LANDMASK, noahmp(ie)%swe, &
-        ! noahmp(ie)%snow_depth, noahmp(ie)%temperature_soil, SNODENS_Grid(ie,:))             
+        call calc_density(LENSFC_proc, lsm_type, LANDMASK, noahmp(ie)%swe, &
+           noahmp(ie)%snow_depth, noahmp(ie)%temperature_soil, SNODENS_Grid(ie,:))             
         call calcSCF_noahmp(LENSFC_proc, VETFCS, SNODENS_Grid(ie,:), &
             noahmp(ie)%snow_depth, SCF_Grid(ie, :)) 
         SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) + SCF_Grid(ie,:)
+        SNODENS_Grid(ens_size+1,:) = SNODENS_Grid(ens_size+1,:) + SNODENS_Grid(ie,:)
 !TPDO: update  sncovr1 "snow cover over land" 
     Enddo 
     SCF_Grid(ens_size+1,:) = SCF_Grid(ens_size+1,:) / ens_size
+    SNODENS_Grid(ens_size+1,:) = SNODENS_Grid(ens_size+1,:) / ens_size
     
     ! write outputs	
     CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
@@ -8230,6 +8233,7 @@ End subroutine map_outputs_toObs
         noahmp_ensm_swe, noahmp_ensm_snow_depth)             
     ! SNDFCS_Ens, SWEFCS_Ens, incr_at_Grid_ensM, anl_at_Grid_ens)
     !------------------------------------------------------------------
+    !use mpi 
     implicit none
     include "mpif.h"
     
