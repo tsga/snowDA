@@ -2174,7 +2174,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
     LOGICAL                   :: file_exists
     CHARACTER(LEN=250)        :: forc_inp_file, filename
     CHARACTER(LEN=1)          :: RANKCH
-    Integer                   :: myindx, ixy
+    Integer                   :: myindx, ixy, ie
 
     Do ie = 1, ens_size
         WRITE(ensCH, '(I3.3)') ie
