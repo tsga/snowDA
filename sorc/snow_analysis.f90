@@ -4277,7 +4277,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 
  subroutine Add_Ensemble_Snow_Increments_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, & !num_assim_steps, dT_Asssim,  & 
                 LENSFC, IVEGSRC, ens_size, &
-                vector_restart_prefix, vector_increment_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                vector_restart_prefix, increment_prefix, vector_noda_prefix, static_prefix, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -4295,7 +4295,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     INTEGER, intent(in)    :: NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &  
                               IY, IM, ID, IH, LENSFC, IVEGSRC   !, num_assim_steps 
     Integer, intent(in)    :: ens_size
-    CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_increment_prefix, vector_noda_prefix, &
+    CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, increment_prefix, vector_noda_prefix, &
                                       static_prefix, output_prefix
     INTEGER, intent(in) :: snowUpdateOpt, PRINTRANK
     REAL, intent(out)   :: SNOANL_out(LENSFC)
@@ -4324,7 +4324,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 
     REAL                     :: incr_at_Grid(ens_size+1, LENSFC_proc) !, incr_at_Grid_ensM(LENSFC)    ! increment at grid
 
-    CHARACTER(len=250)       :: forc_inp_file, inc_inp_file, da_out_file, noda_inp_path
+    CHARACTER(len=250)       :: forc_inp_file, inc_inp_file, da_out_file, noda_inp_path, fv3_prefix
     CHARACTER(LEN=4)         :: RANKCH 
     CHARACTER(LEN=500)       :: static_filename
     ! Integer                 :: NEXC    
@@ -4419,21 +4419,28 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 !=============================================================================================
 ! 2. Read model forecast here, as need VETFCS and snow density for IMS snow depth calc. (later, separate read routines) 
 !=============================================================================================
-  
+ 
     ! READ THE INPUT SURFACE DATA from vector and no da outputs
     noda_inp_path=TRIM(vector_noda_prefix)//"/ufs_land_restart."// & 
         TRIM(y_str)//"-"//TRIM(m_str)//"-"//TRIM(d_str)//"_"//TRIM(h_str)//"-00-00.nc"
 
-! Read vector increments first: Note increment files have save variable name as restarts 
-!> we only copy noahmp(ie)%snow_depth
-    Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_increment_prefix, noda_inp_path, &
-        y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
-        noahmp, SNDnoDA, SWEnoDA, SCF_Grid)  !, SNDFCS, SWEFCS)
+    ! Read vector increments first: Note increment files have save variable name as restarts 
+    !> we only copy noahmp(ie)%snow_depth        
+    ! Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_increment_prefix, noda_inp_path, &
+    !     y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
+    !     noahmp, SNDnoDA, SWEnoDA, SCF_Grid)  !, SNDFCS, SWEFCS)
+
+    ! fv3_prefix = "20161001.230000.xainc.sfc_data.tile"
+    fv3_prefix=TRIM(y_str)//TRIM(m_str)//TRIM(d_str)//"."//TRIM(h_str)//"0000.xainc.sfc_data.tile"
+
+    call read_fv3_tovector_ens(increment_prefix, fv3_prefix, "snwdph", &
+                            ens_size, IDIM, JDIM, LENSFC_proc, &
+                            tile_xy, Idim_xy, Jdim_xy, incr_at_Grid(1:ens_size, :))
 
     incr_at_Grid(ens_size+1,:) = 0.0
     Do ie = 1, ens_size
         ! swe_incr_at_Grid(ie,:) = noahmp(ie)%swe(:)
-        incr_at_Grid(ie,:) = noahmp(ie)%snow_depth(:)    !incr_at_Grid(ens_size+1, LENSFC_proc)
+        ! incr_at_Grid(ie,:) = noahmp(ie)%snow_depth(:)    !incr_at_Grid(ens_size+1, LENSFC_proc)
         incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) + incr_at_Grid(ie,:)
     End do   
     incr_at_Grid(ens_size+1,:) = incr_at_Grid(ens_size+1,:) / ens_size  
