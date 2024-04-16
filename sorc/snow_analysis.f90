@@ -4588,6 +4588,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
         noahmp_ensm_snow_depth = noahmp_ensm_snow_depth + noahmp(ie)%snow_depth
         ! print*, " proc ", myrank, "done loop ", ie
     enddo
+    CALL MPI_BARRIER(MPI_COMM_WORLD, IERR)
     print*, " proc ", myrank, "done snow partioning"
     ! SUM(SNDFCS(1:ens_size, jndx)) / ens_size
     noahmp_ensm_swe = noahmp_ensm_swe / ens_size
