@@ -2183,7 +2183,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
             ! 20161001.230000.xainc.sfc_data.tile5.nc
             WRITE(RANKCH, '(I1.1)') myindx
             ! filename = trim(fv3_restart_prefix)//"tile"//RANKCH//".nc"       
-            filename = forc_inp_file//"/"//trim(fv3_prefix)//RANKCH//".nc"
+            filename = trim(forc_inp_file)//"/"//trim(fv3_prefix)//RANKCH//".nc"
             
             INQUIRE(FILE=trim(filename), EXIST=file_exists)
 
