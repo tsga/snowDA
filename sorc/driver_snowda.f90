@@ -116,7 +116,7 @@
     CHARACTER(LEN=500)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
     CHARACTER(LEN=500)   :: inp_file_backEsmfWeights
     logical              :: only_hofx, regional_tile
-    integer              :: ens_inflation_fact_in
+    Real                 :: ens_inflation_fact_in
     integer              :: nlunit
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &

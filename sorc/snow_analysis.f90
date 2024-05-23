@@ -4340,7 +4340,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     LOGICAL             :: exclude_obs_at_grid
     
     logical, intent(in)      :: only_hofx
-    integer, intent(in)      :: ens_inflation_fact_in
+    Real, intent(in)      :: ens_inflation_fact_in
 
     CHARACTER(LEN=5)    :: TILE_NUM
     ! Character(LEN=3)    :: rank_str
