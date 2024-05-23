@@ -1414,6 +1414,7 @@ MODULE M_DA
         Real(dp)            :: innov_atGrid_ensM_interm(1, 1) 
         Real(dp)            :: Xu_ens_Anomaly_upd(1, ens_size)
         Real(dp)            :: anl_at_Grid_ens_interm(1, ens_size)
+        Real(dp)            :: Pa_cov_interm(1, 1) 
 
         !Integer             :: indx, zndx 
         Integer :: indx, jndx, zndx    
@@ -1676,7 +1677,8 @@ MODULE M_DA
         ! incr_atGrid_ens(1:ens_size) = anl_at_Grid_ens(1:ens_size) - X_state(1,:)
         
         ! Pa = X'(Pa_bar)X'T
-        Pa_cov = matmul(matmul(X_ens_Anomaly, Pa_bar), transpose(X_ens_Anomaly))(1,1)
+        Pa_cov_interm = matmul(matmul(X_ens_Anomaly, Pa_bar), transpose(X_ens_Anomaly))
+        Pa_cov(1) = RESHAPE(Pa_cov_interm,(/1/))
 
         if (print_debug) then
             print*, "Xu_ens_Anomaly_upd: Innov at grid ens anomaly"
