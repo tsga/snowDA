@@ -1678,7 +1678,7 @@ MODULE M_DA
         
         ! Pa = X'(Pa_bar)X'T
         Pa_cov_interm = matmul(matmul(X_ens_Anomaly, Pa_bar), transpose(X_ens_Anomaly))
-        Pa_cov(1) = RESHAPE(Pa_cov_interm,(/1/))
+        Pa_cov(1) = Pa_cov_interm(1,1)
 
         if (print_debug) then
             print*, "Xu_ens_Anomaly_upd: Innov at grid ens anomaly"
