@@ -49,7 +49,7 @@
 ! IMS_SNOWCOVER_PATH: IMS observation location 
 ! IMS_INDEXES_PATH:   location of IMS indices mapping IMS to FV3 grid
 ! restart_prefix, openloop_prefix: restart file and open loop file locations
-! static_prefix: location of static file contaning land vector information 
+! static_filename: static file contaning land vector information 
                  ! e.g., lat/lon/land cover type....
 ! output_prefix: output location
 ! print_debg_info: debug information to be printed
@@ -100,7 +100,7 @@
                            IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH,  &
                            !SFC_FORECAST_PREFIX, &  ! CURRENT_ANALYSIS_PREFIX, ENKFGDAS_TOP_DIR, &
                            restart_prefix, increment_prefix, openloop_prefix, &
-                           static_prefix, output_prefix    !, point_state_prefix                       
+                           static_filename, output_prefix    !, point_state_prefix                       
     ! CHARACTER(len=4)    :: stn_var 
     LOGICAL             :: print_debg_info, resample_scf   !STANDALONE_SNOWDA, , vector_inputs, fv3_index
     Integer             :: begloc, endloc, lsm_type
@@ -115,7 +115,8 @@
     LOGICAL              :: read_obsback_error, read_weighted_back
     CHARACTER(LEN=500)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
     CHARACTER(LEN=500)   :: inp_file_backEsmfWeights
-    logical              :: only_hofx
+    logical              :: only_hofx, regional_tile
+    integer              :: nlunit
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
     !                 DELTSFC,IALB,USE_UFO,DONST,             &
@@ -136,13 +137,13 @@
         assim_SnowPack_obs, assim_SnowCov_obs, ims_correlated,  &    !stn_var, &
         STN_OBS_PREFIX, STN_DIM_NAME,STN_VAR_NAME,STN_ELE_NAME, &
         IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf,  &      !SFC_FORECAST_PREFIX, &  !CURRENT_ANALYSIS_PREFIX, ENKFGDAS_TOP_DIR, &
-        restart_prefix, increment_prefix, openloop_prefix, static_prefix, output_prefix, &
+        restart_prefix, increment_prefix, openloop_prefix, static_filename, output_prefix, &
         print_debg_info, & !STANDALONE_SNOWDA, , fv3_index, vector_inputs, point_state_prefix, &        
         PRINTRANK, snowUpdateOpt, begloc, endloc, lsm_type, &
         exclude_obs_at_grid, &
         read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
         read_weighted_back, inp_file_backEsmfWeights, &
-        only_hofx
+        only_hofx, regional_tile
     !
     DATA IDIM,JDIM,LSOIL,NUM_TILES/96,96,4,6/ 
     DATA IY,IM,ID,IH,FH/1997,8,2,0,0./
@@ -196,7 +197,7 @@
     DATA restart_prefix/"./"/
     DATA increment_prefix/"./"/
     DATA openloop_prefix/"./"/
-    DATA static_prefix/"./"/
+    DATA static_filename/"./"/
     DATA output_prefix/"./"/
     ! DATA STANDALONE_SNOWDA/.false./
     DATA print_debg_info/.false./
@@ -221,6 +222,8 @@
 
     DATA only_hofx/.false./
 
+    DATA regional_tile/.false./
+
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
     CALL MPI_COMM_RANK(MPI_COMM_WORLD, MYRANK, IERR)
@@ -243,12 +246,16 @@
 
     IF (MYRANK==0) PRINT*,"READING NAMSNO NAMELIST."
 
-    CALL BAOPENR(360, "fort.360", IERR)             !"snowDA.nml"   !
-    READ(360, NML=NAMSNO)
+    !CALL BAOPENR(360, "fort.360", IERR)             !"snowDA.nml"   !
+    !READ(360, NML=NAMSNO)
+    nlunit=23
+    open (unit=nlunit, file='fort.360', READONLY, status='OLD')
+    read(nlunit, NAMSNO)
+    close(nlunit)
     IF (MYRANK==0) WRITE(6, NAMSNO)
     
     If(SNOW_DA_TYPE .eq. 1) then 
-        ! Call ReadVectorLength(static_prefix, IDIM, begloc, endloc, LENSFC)
+        ! Call ReadVectorLength(static_filename, IDIM, begloc, endloc, LENSFC)
         LENSFC = IDIM*JDIM ! TOTAL NUMBER OF POINTS FOR THE CUBED-SPHERE TILE 
     else
         LENSFC = endloc - begloc + 1
@@ -319,7 +326,7 @@
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, & 
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf,  &
-                restart_prefix, openloop_prefix, static_prefix, output_prefix, &
+                restart_prefix, openloop_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !, vector_inputs, , fv3_index
                 SNDANL,  &   !SNOFCS, SWEANL, & incr_at_Grid, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -342,7 +349,7 @@
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                restart_prefix, openloop_prefix, static_prefix, &
+                restart_prefix, openloop_prefix, static_filename, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
@@ -366,7 +373,7 @@
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                restart_prefix, openloop_prefix, static_prefix, &
+                restart_prefix, openloop_prefix, static_filename, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
@@ -389,7 +396,7 @@
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                restart_prefix, openloop_prefix, static_prefix, &
+                restart_prefix, openloop_prefix, static_filename, &
                 output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
@@ -400,11 +407,11 @@
     Else if(SNOW_DA_TYPE .eq. 6) then
         Call Add_Ensemble_Snow_Increments_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
                 IY, IM, ID, IH, LENSFC, IVEGSRC, ens_size,  & 
-                restart_prefix, increment_prefix, openloop_prefix, static_prefix, output_prefix, &
+                restart_prefix, increment_prefix, openloop_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc)
+                begloc, endloc, regional_tile)
     Endif 
 
     ! IF (MAX_TASKS < 99999 .AND. MYRANK > (MAX_TASKS - 1)) THEN

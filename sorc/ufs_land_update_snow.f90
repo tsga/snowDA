@@ -2216,6 +2216,74 @@ MODULE M_UFSLAND_SNOW_UPDATE
     
   end subroutine read_fv3_tovector_ens
 
+  subroutine read_regional_fv3_tovector_ens(inp_path, fv3_file, var_name, &
+                                            ens_size, IDIM, JDIM, LENSFC,mp_start, mp_end, SNDFCS) 
+                                    !, & tile_xy, Idim_xy, Jdim_xy)
+    
+    IMPLICIT NONE
+
+    include "mpif.h"
+    
+    CHARACTER(LEN=*), Intent(In)      :: inp_path, fv3_file, var_name
+    INTEGER, Intent(In)               :: ens_size, IDIM, JDIM, LENSFC, mp_start, mp_end
+    ! INTEGER, Intent(In)               :: tile_xy(LENSFC), Idim_xy(LENSFC), Jdim_xy(LENSFC) 
+    REAL, INTENT(OUT)                 :: SNDFCS(ens_size, LENSFC)  !, SWEFCS(LENSFC), VETFCS(LENSFC)  !VEGFCS(LENSFC), 
+
+    CHARACTER(LEN=3)          :: ensCH
+    ! CHARACTER(LEN=1)          :: RANKCH 
+    INTEGER                   :: ERROR, NCID, i
+    INTEGER                   :: ID_DIM
+    INTEGER                   :: ID_VAR   !IDIM, JDIM, 
+    REAL                      :: DUMMY(IDIM, JDIM)
+    REAL                      :: DUMMY2(IDIM * JDIM)
+    ! REAL                      :: SLMASK(LENSFC)
+    LOGICAL                   :: file_exists
+    CHARACTER(LEN=250)        :: forc_inp_file, filename
+    ! CHARACTER(LEN=1)          :: RANKCH
+    Integer                   :: ixy, ie  !myindx, 
+
+    Do ie = 1, ens_size
+        WRITE(ensCH, '(I3.3)') ie
+        forc_inp_file=TRIM(inp_path)//"/mem"//TRIM(ensCH)//"/"
+        ! Do myindx = 1, 6 
+            ! 20161001.230000.xainc.sfc_data.tile5.nc
+            ! WRITE(RANKCH, '(I1.1)') myindx
+            ! filename = trim(fv3_restart_prefix)//"tile"//RANKCH//".nc"       
+        filename = trim(forc_inp_file)//"/"//trim(fv3_file)   !//RANKCH//".nc"
+        
+        INQUIRE(FILE=trim(filename), EXIST=file_exists)
+
+        if (.not. file_exists) then 
+            print *, 'read_sfc_data_ens error,file does not exist', &   
+                    trim(filename) , ' exiting'
+            call MPI_ABORT(MPI_COMM_WORLD, 10) ! CSD - add proper error trapping?
+        endif                
+
+        ERROR=NF90_OPEN(TRIM(filename), NF90_NOWRITE,NCID)
+        CALL NETCDF_ERR(ERROR, 'OPENING FILE: '//TRIM(filename) )
+
+        ERROR=NF90_INQ_VARID(NCID, trim(var_name), ID_VAR)
+        ! ERROR=NF90_INQ_VARID(NCID, "snwdph", ID_VAR)
+        CALL NETCDF_ERR(ERROR, 'READING '//trim(var_name)//' ID' )
+        ERROR=NF90_GET_VAR(NCID, ID_VAR, dummy(:, :))
+        CALL NETCDF_ERR(ERROR, 'READING '//trim(var_name)//' data' )
+        ! SNDFCS = RESHAPE(DUMMY, (/LENSFC/))
+        ERROR = NF90_CLOSE(NCID)
+
+        ! enddo
+
+        ! 7.20.21 map fv3 to land
+        dummy2 = reshape(dummy,(/IDIM * JDIM/))
+        SNDFCS(ie, :) = dummy2(mp_start:mp_end)    !LENSFC/)) 
+        ! Do ixy=1, LENSFC 
+        !     ! SWEFCS(ixy) = dummy1(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
+        !     SNDFCS(ie, ixy) = dummy(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
+        !     ! VETFCS(ixy) = dummy3(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
+        ! end do
+    enddo
+    
+  end subroutine read_regional_fv3_tovector_ens
+
     subroutine restart_to_fv3(fv3_restart_prefix, IY, IM, ID, IH, IDIM, JDIM, &
                         vector_length, tile_xy, Idim_xy, Jdim_xy, SWEFCS, SNDFCS, &
                         NUM_TILES, LENSFC, SNDFfull) 

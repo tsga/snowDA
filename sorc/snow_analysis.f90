@@ -667,7 +667,7 @@ CONTAINS
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, &   !SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX,  &
-            vector_restart_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+            vector_restart_prefix, vector_noda_prefix, static_filename, output_prefix, &
             snowUpdateOpt, PRINTRANK, print_debg_info, &            !fv3_index, vector_inputs, &
             SNDANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
             Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -711,7 +711,7 @@ CONTAINS
         CHARACTER(LEN=*), Intent(In)   :: IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH
         ! CHARACTER(LEN=*), Intent(In)   :: SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX
         CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_noda_prefix, &
-                                          static_prefix, output_prefix
+                                          static_filename, output_prefix
 
         REAL, intent(In)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim 
         Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
@@ -798,7 +798,7 @@ CONTAINS
 
         CHARACTER(len=250)       :: forc_inp_file, da_out_file, noda_inp_path
         CHARACTER(LEN=4)         :: RANKCH 
-        CHARACTER(LEN=500)       :: static_filename
+!        CHARACTER(LEN=500)       :: static_filename
 
         REAL, ALLOCATABLE  :: SNOFCS_atEvalPts(:), incr_atEvalPts(:), SNOANL_atEvalPts(:) !, SNOANL_Cur_atEvalPts(:)  !evalution points 
         REAL, ALLOCATABLE  :: Lat_atEvalPts(:), Lon_atEvalPts(:), Obs_atEvalPts(:)     !evalution points
@@ -883,9 +883,9 @@ CONTAINS
         write(fvs_tile, "(I0.2)") IDIM
 
 ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
-        static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)//"_static_fields.nc"
+!        static_filename = trim(static_filename)//"/ufs-land_C"//trim(fvs_tile)//"_static_fields.nc"
 
-        Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, mp_start, mp_end, &
+        Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, mp_start, mp_end, &
                 tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
     
         RLO_Tile = RLO ! copy so that RLO used later is not modified
@@ -1656,7 +1656,7 @@ CONTAINS
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                vector_restart_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                vector_restart_prefix, vector_noda_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -1682,7 +1682,7 @@ CONTAINS
     CHARACTER(LEN=*), Intent(In)   :: IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH
     ! CHARACTER(LEN=*), Intent(In)   :: SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX
     CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_noda_prefix, &
-                                      static_prefix, output_prefix
+                                      static_filename, output_prefix
 
     REAL, intent(in)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim
     Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
@@ -1746,7 +1746,7 @@ CONTAINS
 
     CHARACTER(len=250)       :: forc_inp_file, da_out_file, noda_inp_path
     CHARACTER(LEN=4)         :: RANKCH 
-    CHARACTER(LEN=500)       :: static_filename
+!    CHARACTER(LEN=500)       :: static_filename
 
     ! REAL, ALLOCATABLE  :: SNOFCS_atEvalPts(:), incr_atEvalPts(:), SNOANL_atEvalPts(:) !, SNOANL_Cur_atEvalPts(:)  !evalution points 
     REAL, ALLOCATABLE    :: Lat_atEvalPts(:), Lon_atEvalPts(:), Obs_atEvalPts(:)     !evalution points
@@ -1855,9 +1855,9 @@ CONTAINS
 
 ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
     write(fvs_tile, "(I0.2)") IDIM
-    static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)// &
-                    "_static_fields.nc"
-    Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+!    static_filename = trim(static_filename)//"/ufs-land_C"//trim(fvs_tile)// &
+!                    "_static_fields.nc"
+    Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, &
             mp_start, mp_end, &
             tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
     ! make RLO copy before so that RLO (used later) is not modified
@@ -2494,7 +2494,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
 !                 assim_SnowPack_obs, assim_SnowCov_obs, &
 !                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
 !                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, & 
-!                 vector_restart_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+!                 vector_restart_prefix, vector_noda_prefix, static_filename, output_prefix, &
 !                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
 !                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
 !                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -2519,7 +2519,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
 !     CHARACTER(LEN=*), Intent(In)   :: IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH
 !     ! CHARACTER(LEN=*), Intent(In)   :: SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX
 !     CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_noda_prefix, &
-!                                       static_prefix, output_prefix
+!                                       static_filename, output_prefix
 
 !     REAL, intent(in)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim
 !     Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
@@ -2577,7 +2577,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
 
 !     CHARACTER(len=250)       :: forc_inp_file, da_out_file, noda_inp_path
 !     CHARACTER(LEN=4)         :: RANKCH 
-!     CHARACTER(LEN=500)       :: static_filename
+!!     CHARACTER(LEN=500)       :: static_filename
 
 !     ! REAL, ALLOCATABLE  :: SNOFCS_atEvalPts(:), incr_atEvalPts(:), SNOANL_atEvalPts(:) !, SNOANL_Cur_atEvalPts(:)  !evalution points 
 !     REAL, ALLOCATABLE    :: Lat_atEvalPts(:), Lon_atEvalPts(:), Obs_atEvalPts(:)     !evalution points
@@ -2680,9 +2680,9 @@ END subroutine PF_Snow_Analysis_NOAHMP
 
 ! ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
 !     write(fvs_tile, "(I0.2)") IDIM
-!     static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)// &
-!                     "_static_fields.nc"
-!     Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+!!     static_filename = trim(static_filename)//"/ufs-land_C"//trim(fvs_tile)// &
+!!                     "_static_fields.nc"
+!     Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, &
 !             mp_start, mp_end, &
 !             tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
 !     ! make RLO copy before so that RLO (used later) is not modified
@@ -3303,7 +3303,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                vector_restart_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                vector_restart_prefix, vector_noda_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -3333,7 +3333,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
     CHARACTER(LEN=*), Intent(In)   :: IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH
     ! CHARACTER(LEN=*), Intent(In)   :: SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX
     CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_noda_prefix, &
-                                      static_prefix, output_prefix
+                                      static_filename, output_prefix
 
     REAL, intent(in)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim
     Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
@@ -3416,7 +3416,7 @@ END subroutine PF_Snow_Analysis_NOAHMP
 
     CHARACTER(len=250)       :: forc_inp_file, da_out_file, noda_inp_path
     CHARACTER(LEN=4)         :: RANKCH 
-    CHARACTER(LEN=500)       :: static_filename
+!    CHARACTER(LEN=500)       :: static_filename
 
     ! REAL, ALLOCATABLE  :: SNOFCS_atEvalPts(:), incr_atEvalPts(:), SNOANL_atEvalPts(:) !, SNOANL_Cur_atEvalPts(:)  !evalution points 
     REAL, ALLOCATABLE    :: Lat_atEvalPts(:), Lon_atEvalPts(:), Obs_atEvalPts(:)     !evalution points
@@ -3521,9 +3521,9 @@ END subroutine PF_Snow_Analysis_NOAHMP
 
 ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
     write(fvs_tile, "(I0.2)") IDIM
-    static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)// &
-                    "_static_fields.nc"
-    Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+!    static_filename = trim(static_filename)//"/ufs-land_C"//trim(fvs_tile)// &
+!                    "_static_fields.nc"
+    Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, &
             mp_start + (begloc - 1), mp_end + (begloc - 1), &
             tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
     ! make RLO copy before so that RLO (used later) is not modified
@@ -4277,11 +4277,11 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 
  subroutine Add_Ensemble_Snow_Increments_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY, IM, ID, IH, & !num_assim_steps, dT_Asssim,  & 
                 LENSFC, IVEGSRC, ens_size, &
-                vector_restart_prefix, increment_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                vector_restart_prefix, increment_prefix, vector_noda_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
-                begloc, endloc)
+                begloc, endloc, regional_tile)
    !----------------------------------------------------------------------
    ! Input arguments: 
          
@@ -4296,10 +4296,10 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
                               IY, IM, ID, IH, LENSFC, IVEGSRC   !, num_assim_steps 
     Integer, intent(in)    :: ens_size
     CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, increment_prefix, vector_noda_prefix, &
-                                      static_prefix, output_prefix
+                                      static_filename, output_prefix
     INTEGER, intent(in) :: snowUpdateOpt, PRINTRANK
     REAL, intent(out)   :: SNOANL_out(LENSFC)
-    LOGICAL             :: print_debg_info  !, fv3_index vector_inputs, 
+    LOGICAL             :: print_debg_info, regional_tile  !, fv3_index vector_inputs, 
         ! for mpi par
     INTEGER   :: Np_ext, Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end
     Integer   :: LENSFC_proc, begloc, endloc
@@ -4326,7 +4326,7 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 
     CHARACTER(len=250)       :: forc_inp_file, inc_inp_file, da_out_file, noda_inp_path, fv3_prefix
     CHARACTER(LEN=4)         :: RANKCH 
-    CHARACTER(LEN=500)       :: static_filename
+!    CHARACTER(LEN=500)       :: static_filename
     ! Integer                 :: NEXC    
     Real               :: snodens, SNODENS_Grid(ens_size+1, LENSFC_proc)
     Integer            :: veg_type_landice  ! 10.21.20: no assmn over land ice
@@ -4394,8 +4394,8 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
 
 ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
     write(fvs_tile, "(I0.2)") IDIM
-    static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)//"_static_fields.nc"
-    Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+!    static_filename = trim(static_filename)  !//"/ufs-land_C"//trim(fvs_tile)//"_static_fields.nc"
+    Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, &
             mp_start, mp_end, &
             tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
     ! make RLO copy before so that RLO (used later) is not modified
@@ -4429,15 +4429,21 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
     ! Call ReadRestartNoahMP_Ens(myrank, LENSFC_proc, vector_increment_prefix, noda_inp_path, &
     !     y_str, m_str, d_str, h_str, ens_size, mp_start, mp_end, &
     !     noahmp, SNDnoDA, SWEnoDA, SCF_Grid)  !, SNDFCS, SWEFCS)
-
+    
+    incr_at_Grid = 0.0
     ! fv3_prefix = "20161001.230000.xainc.sfc_data.tile"
-    fv3_prefix=TRIM(y_str)//TRIM(m_str)//TRIM(d_str)//"."//TRIM(h_str)//"0000.xainc.sfc_data.tile"
-
-    call read_fv3_tovector_ens(increment_prefix, fv3_prefix, "snwdph", &
+    if(regional_tile) then 
+        fv3_prefix=TRIM(y_str)//TRIM(m_str)//TRIM(d_str)//"."//TRIM(h_str)//"0000.xainc.sfc_data.tile7.nc"
+        call read_regional_fv3_tovector_ens(increment_prefix, fv3_prefix, "snwdph", &
+                     ens_size, IDIM, JDIM, LENSFC_proc, mp_start, mp_end, incr_at_Grid(1:ens_size, :))
+    else
+        fv3_prefix=TRIM(y_str)//TRIM(m_str)//TRIM(d_str)//"."//TRIM(h_str)//"0000.xainc.sfc_data.tile"
+        call read_fv3_tovector_ens(increment_prefix, fv3_prefix, "snwdph", &
                             ens_size, IDIM, JDIM, LENSFC_proc, &
                             tile_xy, Idim_xy, Jdim_xy, incr_at_Grid(1:ens_size, :))
-
-    incr_at_Grid(ens_size+1,:) = 0.0
+    endif
+    
+    ! incr_at_Grid(ens_size+1,:) = 0.0
     Do ie = 1, ens_size
         ! swe_incr_at_Grid(ie,:) = noahmp(ie)%swe(:)
         ! incr_at_Grid(ie,:) = noahmp(ie)%snow_depth(:)    !incr_at_Grid(ens_size+1, LENSFC_proc)
@@ -4679,7 +4685,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
                 assim_SnowPack_obs, assim_SnowCov_obs, &
                 STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
                 IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
-                vector_restart_prefix, vector_noda_prefix, static_prefix, output_prefix, &
+                vector_restart_prefix, vector_noda_prefix, static_filename, output_prefix, &
                 snowUpdateOpt, PRINTRANK, print_debg_info, &   !fv3_index, vector_inputs, &
                 SNOANL_out, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
@@ -4708,7 +4714,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
     CHARACTER(LEN=*), Intent(In)   :: IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH
     ! CHARACTER(LEN=*), Intent(In)   :: SFC_FORECAST_PREFIX, CURRENT_ANALYSIS_PREFIX
     CHARACTER(LEN=*), Intent(In)   :: vector_restart_prefix, vector_noda_prefix, &
-                                      static_prefix, output_prefix
+                                      static_filename, output_prefix
 
     REAL, intent(in)    :: PERCENT_OBS_WITHHELD   !, dT_Asssim
     Real, intent(In)    :: L_horz , h_ver, obs_tolerance, max_ele_diff
@@ -4790,7 +4796,7 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
 
     CHARACTER(len=250)       :: forc_inp_file, da_out_file, noda_inp_path
     CHARACTER(LEN=4)         :: RANKCH 
-    CHARACTER(LEN=500)       :: static_filename
+!    CHARACTER(LEN=500)       :: static_filename
 
     ! REAL, ALLOCATABLE  :: SNOFCS_atEvalPts(:), incr_atEvalPts(:), SNOANL_atEvalPts(:) !, SNOANL_Cur_atEvalPts(:)  !evalution points 
     REAL, ALLOCATABLE    :: Lat_atEvalPts(:), Lon_atEvalPts(:), Obs_atEvalPts(:)     !evalution points
@@ -4895,9 +4901,9 @@ subroutine EnSRF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, IY,
 
 ! READ THE OROGRAPHY AND GRID POINT LAT/LONS FOR THE CUBED-SPHERE TILE p_tN
     write(fvs_tile, "(I0.2)") IDIM
-    static_filename = trim(static_prefix)//"/ufs-land_C"//trim(fvs_tile)// &
-                    "_static_fields.nc"
-    Call ReadTileInfo(static_filename, LENSFC_proc, veg_type_landice, &
+!    static_filename = trim(static_filename)//"/ufs-land_C"//trim(fvs_tile)// &
+!                    "_static_fields.nc"
+    Call ReadTileInfo(trim(static_filename), LENSFC_proc, veg_type_landice, &
             mp_start + (begloc - 1), mp_end + (begloc - 1), &
             tile_xy, Idim_xy, Jdim_xy, RLA, RLO, OROG, VETFCS, LANDMASK) 
     ! make RLO copy before so that RLO (used later) is not modified
