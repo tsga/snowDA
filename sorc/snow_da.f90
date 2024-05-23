@@ -5072,6 +5072,8 @@ MODULE M_DA
         REAL, ALLOCATABLE, Intent(Out)    :: Lat_GHCND(:), Lon_GHCND(:)
         INTEGER, ALLOCATABLE, Intent(Out) :: Index_Obs_Excluded(:)
         Character(len=128), allocatable, Intent(Out)  ::station_id(:)
+
+        REAL, ALLOCATABLE :: SND_GHCND_IN(:)
     
         INTEGER                :: i, ERROR, NCID, grp_ncid, ID_DIM, ID_VAR
         LOGICAL                :: file_exists
@@ -5093,6 +5095,7 @@ MODULE M_DA
         CALL NETCDF_ERR(ERROR, 'ERROR READING Size of Dimension' )
     
         ALLOCATE(SND_GHCND(NDIM))
+        ALLOCATE(SND_GHCND_IN(NDIM))        
         ALLOCATE(Lat_GHCND(NDIM))
         ALLOCATE(Lon_GHCND(NDIM))
         ALLOCATE(Ele_GHCND(NDIM))
@@ -5126,8 +5129,13 @@ MODULE M_DA
         CALL NETCDF_ERR(ERROR, 'ERROR ObsValue ID' )
         ERROR=NF90_INQ_VARID(grp_ncid, TRIM(STN_VAR_NAME), ID_VAR)
         CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD ID' )
-        ERROR=NF90_GET_VAR(grp_ncid, ID_VAR, SND_GHCND)
+        ERROR=NF90_GET_VAR(grp_ncid, ID_VAR, SND_GHCND_IN)
         CALL NETCDF_ERR(ERROR, 'ERROR READING SNWD RECORD' )
+        
+        SND_GHCND = IEEE_VALUE(SND_GHCND, IEEE_QUIET_NAN)
+        Where(SND_GHCND_IN >=0) SND_GHCND = SND_GHCND_IN
+
+        If (allocated(SND_GHCND_IN)) deallocate(SND_GHCND_IN)
 
         ! read excluded indices
         ERROR=NF90_INQ_DIMID(NCID, "obs_excluded", ID_DIM)
