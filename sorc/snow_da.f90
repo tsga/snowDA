@@ -1626,13 +1626,13 @@ MODULE M_DA
         End do
 
         !rho=ens_inf fact
-        !Pa_bar = [(k-1)I/rho + Xh'TR-1Xh']    [ens, ens]
+        !Pa_bar = [(k-1)I/rho + Xh'TR-1Xh']-1    [ens, ens]
         Pa_bar = matmul(matmul(TRANSPOSE(Xh_ens_Anomaly), inv(R_cov)), Xh_ens_Anomaly)
-        Pa_bar = (ens_size - 1) * I_Matrix / ens_inflation_fact + Pa_bar
+        Pa_bar = inv((ens_size - 1) * I_Matrix / ens_inflation_fact + Pa_bar)
         ! Wa_Mat = symmetric_sqrt((ens_size - 1) * Pa_bar)  
         print_i = -99
 !TODO Check this is symmetric sqrt
-        call matsqrt_sub(print_i, (ens_size - 1) * Pa_bar, Wa_Mat, info)  !Rs_cov =matsqrt(R_cov)
+        call matsqrt_sub(print_i, (ens_size - 1) * Pa_bar, Wa_Mat, info)  !Wa_Mat =matsqrt(Pa_bar)
         if (info /= 0) then
             stop 'Matrix factorization failed at Pa_bar!'
         end if
