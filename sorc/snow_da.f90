@@ -1365,7 +1365,335 @@ MODULE M_DA
 
     End Subroutine snow_DA_PF  
 
+    Subroutine snow_DA_LETKF(RLA_jndx, RLO_jndx, Orog_jndx,   &
+        num_Obs_1, num_Obs, num_stn, jindx, ens_size,   &        
+        Lat_Obs, Lon_Obs, Ele_Obs,                              &
+        L_horz, h_ver,                                      &   !L_horz in Km, h_ver in m
+        assim_IMS, rcov_localize, ens_inflate,  & 
+        rcov_correlated, bcov_localize, BBcov_localize, &
+        SNOFCS_Inp_Ens,          &     !LENSFC, 
+        loc_nearest_Obs, SNOFCS_atObs_ens,   &
+        Stdev_Obs, stdev_back,                  &   !Stdev_Obs_ims, 
+        obs_Array,                          &
+        obs_Innov, incr_atGrid_ens, anl_at_Grid_ens, ens_inflation_fact_in, Pa_cov)
+        
+        IMPLICIT NONE
+        !USE intrinsic::ieee_arithmetic
+        integer, parameter :: dp = kind(1.d0)
+       
+        
+        Real, Intent(In)        :: RLA_jndx, RLO_jndx, Orog_jndx
+        Integer, Intent(In)     :: num_Obs_1, num_Obs, num_stn, jindx, ens_size
+        Real, Intent(In)        :: L_horz, h_ver  !L_horz in Km, h_ver in m
+        Real, Intent(In)        :: Lat_Obs(num_Obs), Lon_Obs(num_Obs), Ele_Obs(num_Obs)
 
+        LOGICAL, Intent(In)     :: assim_IMS, rcov_localize, ens_inflate, &
+                                   rcov_correlated, bcov_localize, BBcov_localize
+        Real, Intent(In)        :: SNOFCS_Inp_Ens(ens_size)  !, LENSFC)
+        Integer, Intent(In)     :: loc_nearest_Obs(num_Obs_1)        
+        Real, Intent(In)        :: SNOFCS_atObs_ens(ens_size, num_stn)
+        Real, Intent(In)        :: Stdev_Obs(num_Obs), stdev_back   !,Stdev_Obs_ims
+        REAL, INTENT(In)        :: obs_Array(num_Obs)
+
+        Real, optional, intent(in)    :: ens_inflation_fact_in
+
+        Real, INTENT(Out)   :: obs_Innov(num_Obs, 1)
+        Real, INTENT(Out)   :: incr_atGrid_ens(ens_size+1)
+        Real, INTENT(Out)   :: anl_at_Grid_ens(ens_size+1)  
+        Real, INTENT(Out)   :: Pa_cov(1)        
+
+        Real                :: X_state(1, ens_size), Xh_state_atObs(num_Obs, ens_size)
+        Real(dp)            :: X_ave_State, Xh_ave_State(num_obs)
+        Real(dp)            :: X_ens_Anomaly(1, ens_size), Xh_ens_Anomaly(num_Obs, ens_size)
+        ! Real(dp)            :: Pxz_cov(1, num_obs), Pzz_cov(num_Obs, num_Obs)
+        ! Real(dp)            :: Pzz_s(num_Obs, num_Obs), Pzz_s_i(num_Obs,num_Obs)
+        Real(dp)            :: Corr_mat(num_obs, num_obs)
+        Real(dp)            :: R_cov(num_obs, num_obs)   !, R_cov_s(num_obs, num_obs)
+        ! Real(dp)            :: K_gain(1, num_obs), K_anom_gain(1, num_obs)   !,Pzz_cov_inv(num_obs, num_obs)
+        ! Real(dp)            :: innov_ens_Anomaly(1, ens_size)
+        Real(dp)            :: innov_atGrid_ensM_interm(1, 1) 
+        Real(dp)            :: Xu_ens_Anomaly_upd(1, ens_size)
+        Real(dp)            :: anl_at_Grid_ens_interm(1, ens_size)
+
+        !Integer             :: indx, zndx 
+        Integer :: indx, jndx, zndx    
+        Real    :: rjk_distArr(num_Obs, num_Obs), zjk_distArr(num_Obs, num_Obs)    
+        Real    :: l_distArr(num_Obs), h_distArr(num_Obs), haversinArr(num_Obs)
+        Real(dp)            :: R_cov_loc(num_obs) !, b_cov_loc(num_obs)
+        ! this is only used in 'inflation of ensembles'
+        Real(dp)            :: Pxx_cov(1, 1), Pxx_cov_h(num_Obs, num_Obs) 
+        ! Real(dp)            :: R_div_Pzz(num_obs, num_obs)
+        ! Real(dp)            :: alpha_anom_gain(1, num_obs)
+
+        Real(dp)            :: I_Matrix(ens_size, ens_size) 
+        Real(dp)            :: Pa_bar(ens_size, ens_size)
+        Real(dp)            :: Wa_Mat(ens_size, ens_size), Wav_Mat(ens_size, 1)
+        Real(dp)            :: Wa_plus_Wave(ens_size, ens_size)
+        
+        Real    :: d_latArr(num_Obs), d_lonArr(num_Obs)
+        Real    ::  Lon_Obs_2(num_Obs)      !RLO_2_jndx,
+        Real    :: RLA_rad_jndx, RLO_rad_jndx
+        Real    :: Lat_Obs_rad(num_Obs), Lon_Obs_rad(num_Obs)   
+        Real(16), Parameter :: PI_16 = 4 * atan (1.0_16)        
+        Real(16), Parameter :: pi_div_180 = PI_16/180.0
+        Real, Parameter         :: earth_rad = 6371.
+        Real    :: ens_inflation_fact
+        Real    :: std_xx, std_xhxh(num_Obs)
+        Integer :: i, j
+        Integer :: info
+        Integer :: print_i
+
+        print_i = 0
+        
+        !Lon between -180 and 180 for some inputs
+        Lon_Obs_2 = Lon_Obs
+        Where(Lon_Obs_2 < 0) Lon_Obs_2 = 360. + Lon_Obs_2
+    
+        RLA_rad_jndx =  pi_div_180 * RLA_jndx
+        RLO_rad_jndx =  pi_div_180 * RLO_jndx
+        Lat_Obs_rad =  pi_div_180 * Lat_Obs
+        Lon_Obs_rad =  pi_div_180 * Lon_Obs_2  
+
+        ! Corr(j, k) = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+        ! rjk = horizontal distance between j and k
+        ! zjk = vertical distance between j and k
+        ! L = horizontal correlation length (note in Km)
+        ! h = vertical correlation length   (in m)
+        Do jndx = 1, num_Obs 
+            d_latArr = (Lat_Obs_rad(jndx) - Lat_Obs_rad) / 2.
+            d_lonArr = (Lon_Obs_rad(jndx) - Lon_Obs_rad) / 2.
+            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad) * cos(Lat_Obs_rad(jndx)) * sin(d_lonArr)**2
+            Where (haversinArr > 1) haversinArr = 1
+            ! Do indx = 1, num_Obs 
+            !     if (haversinArr(indx) > 1) haversinArr(indx) = 1 ! ensure
+            !     numerical errors don't make h>1
+            ! end do
+            rjk_distArr(jndx,:) = 2 * earth_rad * asin(sqrt(haversinArr)) ! rjk, k = 1, Num obs for a given j
+            zjk_distArr(jndx,:) = Ele_Obs(jndx) - Ele_Obs       ! zjk, k = 1, Num obs for a given j
+        End do
+        !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+        if (print_debug) then
+            print*, "Dist for corr at obs pts"
+            print*, rjk_distArr
+            print*, "Vertical dist for corr at obs pts"
+            print*, zjk_distArr
+        endif
+        Corr_mat = (1. + rjk_distArr/L_horz) * exp(-1. * rjk_distArr/L_horz) !L_horz in Km, h_ver in m
+        Corr_mat = Corr_mat * exp(-1. * (zjk_distArr/h_ver)**2)
+        if (print_debug) then
+            print*, "corr at obs pts"
+            print*, Corr_mat
+        endif
+
+        ! Observation covariance         
+        ! R correlated?
+        if(rcov_correlated) then 
+            ! R = stddev_obs*stdev_obs * Corr(j, k)
+            ! R_cov(i,j) = Corr_mat(i,j) * Stdev_Obs(i) * Stdev_Obs(j)
+            Do indx = 1, num_Obs
+                R_cov(indx, :) = Corr_mat(indx, :) * Stdev_Obs(indx) * Stdev_Obs(:)
+            enddo
+        else
+            ! R = stdev_o*stdev_o * I , I = Identitity matrix
+            R_cov = 0.
+            Do indx = 1, num_Obs
+                ! R_cov(indx, indx) = Stdev_Obs_depth * Stdev_Obs_depth
+                R_cov(indx, indx) = Stdev_Obs(indx) * Stdev_Obs(indx)
+            end do
+            ! if (assim_IMS) R_cov(num_Obs, num_Obs) = Stdev_Obs_ims *
+            ! Stdev_Obs_ims
+        endif
+        if (print_debug) then
+            print*, "Obs cov before localization"
+            print*, R_cov
+        endif
+
+        ! R_cov = R_cov * R_cov_loc
+        if(rcov_localize) then  
+            ! cov localization 
+            ! https://en.wikipedia.org/wiki/Haversine_formula
+            d_latArr = (RLA_rad_jndx - Lat_Obs_rad) / 2.
+            d_lonArr = (RLO_rad_jndx - Lon_Obs_rad) / 2.
+            haversinArr = sin(d_latArr)**2 + cos(Lat_Obs_rad) * cos(RLA_rad_jndx) * sin(d_lonArr)**2
+            Where (haversinArr > 1) haversinArr = 1.
+            l_distArr = 2 * earth_rad * asin(sqrt(haversinArr))     ! rjk, k =1, Num obs for a given j
+            h_distArr = abs(Orog_jndx - Ele_Obs)       ! zjk, k = 1, Num obs for a given j
+            if (print_debug) then
+                print*, "Horz Dist for Back corr at obs pts and model grid"
+                print*, l_distArr
+                print*, "Vertical dist for Back corr at obs pts and model grid"
+                print*, h_distArr
+            endif  
+            ! factor for localization of R covariance 
+!4.18.23 use similar form as that of OI localiztion/
+            !Corr_j_k = (1+rjk/L)exp(-rjk/L)exp(-(zjk/h)^2)
+            R_cov_loc = (1. + l_distArr/L_horz) * exp(-1. * l_distArr/L_horz) !L_horz in Km, h_ver in m 
+            R_cov_loc = R_cov_loc * exp(-1. * (h_distArr/h_ver)**2)      !**2)
+            ! R_cov_loc = exp(1. * l_distArr/L_horz)        !**2) !L_horz in Km,
+            ! h_ver in m 
+            ! R_cov_loc = R_cov_loc * exp(1. * h_distArr/h_ver)      !**2)
+            if (print_debug) then
+                print*, "Obs cov localization factor"
+                print*, R_cov_loc
+            endif 
+            Do indx = 1, num_Obs
+                R_cov(indx, indx) = R_cov(indx, indx) / R_cov_loc(indx)
+            end do
+            if (print_debug) then
+                print*, "Obs cov after localization"
+                print*, R_cov
+            endif
+        endif            
+        
+        ! Background states X and Xh (Dim [E] [m, E], E = ensemble size, m = num
+        ! obs)
+        X_state(1, :) = SNOFCS_Inp_Ens(:)  !, jindx)
+        
+        Do zndx = 1, num_Obs_1
+            Xh_state_atObs(zndx, :) = SNOFCS_atObs_ens(:, loc_nearest_Obs(zndx))
+            ! Xh_ave_State(zndx) = SNOFCS_atObs_ens(ens_size+1,
+            ! loc_nearest_Obs(zndx))
+        End do
+        if (assim_IMS) Xh_state_atObs(num_Obs, :) = SNOFCS_Inp_Ens(:)  !, jindx)
+        ! Xh_ave_State(num_Obs) = SNOFCS_Inp_Ens(ens_size+1)
+        
+        !ens ave
+        X_ave_State = SUM(X_state(1,:)) / ens_size   !SNOFCS_Inp_Ens(ens_size+1)
+!
+        Do zndx = 1, num_Obs
+            Xh_ave_State(zndx) = SUM(Xh_state_atObs(zndx, :)) / ens_size
+        End do  
+
+        ! ens anomaly X' and Xh'    
+        X_ens_Anomaly(1,:) = X_state(1,:) - X_ave_State
+        Do zndx = 1, num_Obs
+            Xh_ens_Anomaly(zndx, :) = Xh_state_atObs(zndx, :) - Xh_ave_State(zndx)
+        End do
+
+        ! infl
+        ! if do_infln is true:
+        ! - calculate below and apply to ens anomalies
+        ! else
+        ! - use input infl. factor if given applied on Pa 
+
+        ! because the ensemble spread from GFS forecast snow depth is narrow
+        ! we use simple std.dev ratio to expand the ensemble anomalies 
+        ! expect this to lead to background std.dev comparable to that used in
+        ! the OI DA
+        ens_inflation_fact = 1.0
+        if (ens_inflate) then  
+            Pxx_cov = matmul(X_ens_Anomaly, TRANSPOSE(X_ens_Anomaly)) ![1,E][E,1] = [1,1]
+            Pxx_cov = Pxx_cov / (ens_size - 1)
+            if (Pxx_cov(1,1) > 0.1) then 
+                ens_inflation_fact = stdev_back / sqrt(Pxx_cov(1,1))
+            else    !if (Pxx_cov(1,1) .eq. 0) 
+                ens_inflation_fact = 1.0
+                !print*, "zero background cov: " , Pxx_cov(1,1)                
+            endif   
+            if (ens_inflation_fact > 1) then ! .and. (ens_inflation_fact < 100))then
+                X_ens_Anomaly = ens_inflation_fact * X_ens_Anomaly
+                !Xh_ens_Anomaly = ens_inflation_fact * Xh_ens_Anomaly
+            endif
+            Pxx_cov_h = matmul(Xh_ens_Anomaly, TRANSPOSE(Xh_ens_Anomaly)) ![m,E][E,m] = [m,m]
+            Pxx_cov_h = Pxx_cov_h / (ens_size - 1)
+            Do indx = 1, num_Obs
+                ens_inflation_fact = 1.0
+                if (Pxx_cov_h(indx,indx) > 0.1) then 
+                    ens_inflation_fact = stdev_back / sqrt(Pxx_cov_h(indx,indx))          
+                endif   
+                if (ens_inflation_fact > 1) then ! .and. (ens_inflation_fact < 100)) then
+                    Xh_ens_Anomaly(indx, :) = ens_inflation_fact * Xh_ens_Anomaly(indx, :)
+                endif
+            enddo
+        end if
+
+        if (present(ens_inflation_fact_in)) then 
+            ens_inflation_fact = ens_inflation_fact_in 
+        else
+            ens_inflation_fact = 1.
+        endif 
+        
+        I_Matrix = 0. 
+        Do jndx = 1, ens_size
+            I_Matrix(jndx, jndx) = 1.
+        Enddo
+
+        ! Innovation at obs d = Z - Xh [m,E]
+        ! for ave [m,1]
+        Do zndx = 1, num_Obs
+            obs_Innov(zndx, 1) = obs_Array(zndx) - Xh_ave_State(zndx)
+        End do
+
+        !rho=ens_inf fact
+        !Pa_bar = [(k-1)I/rho + Xh'TR-1Xh']    [ens, ens]
+        Pa_bar = matmul(matmul(TRANSPOSE(Xh_ens_Anomaly), inv(R_cov)), Xh_ens_Anomaly)
+        Pa_bar = (ens_size - 1) * I_Matrix / ens_inflation_fact + Pa_bar
+        ! Wa_Mat = symmetric_sqrt((ens_size - 1) * Pa_bar)  
+        print_i = -99
+!TODO Check this is symmetric sqrt
+        call matsqrt_sub(print_i, (ens_size - 1) * Pa_bar, Wa_Mat, info)  !Rs_cov =matsqrt(R_cov)
+        if (info /= 0) then
+            stop 'Matrix factorization failed at Pa_bar!'
+        end if
+        !Wav_Mat = Pa_bar (Xh'T)R-1(Zo - Xhave) [E, 1]
+        Wav_Mat = matmul(matmul(Pa_bar, TRANSPOSE(Xh_ens_Anomaly)), &
+                        matmul(inv(R_cov), obs_Innov))
+        ! Wa_plus_Wave = Wa_Mat + Wav_Mat   (column sum)
+        Do zndx = 1, ens_size
+            Wa_plus_Wave(:, zndx) = Wa_Mat(:, zndx) +  Wav_Mat(:, 1)
+        End do   
+        
+        ! Ens mean increment 
+        ! X'Wave 
+        innov_atGrid_ensM_interm = matmul(X_ens_Anomaly, Wav_Mat) ! [1,E][E,1] 
+        incr_atGrid_ens(ens_size+1) = innov_atGrid_ensM_interm(1, 1) 
+        ! Ens mean Update 
+        anl_at_Grid_ens(ens_size + 1) = X_ave_State + incr_atGrid_ens(ens_size+1)
+        if (print_debug) then
+            print*, "grid ens mean increment"
+            print*, incr_atGrid_ens(ens_size+1)
+            print*, "Analysis ensemble mean"
+            print*, anl_at_Grid_ens(ens_size + 1)
+        endif    
+
+        ! Ens increments over avereage background
+        ! X'(Wa + Wave)  [1,e] [E, E] 
+        Xu_ens_Anomaly_upd = matmul(X_ens_Anomaly, Wa_plus_Wave) 
+        ! non-ens_mean, ensemble members update
+        ! Xave + X'(Wa + Wave)
+        anl_at_Grid_ens_interm(1,:) = X_ave_State + Xu_ens_Anomaly_upd(1, :) 
+        anl_at_Grid_ens(1:ens_size) =RESHAPE(anl_at_Grid_ens_interm,(/ens_size/))
+        !10.26.21 ensemble increments
+        incr_atGrid_ens(1:ens_size) = anl_at_Grid_ens(1:ens_size) - X_state(1,:)
+        ! ! Ens increments over avereage analysis
+        ! ! X' Wa [1,e] [E, E] 
+        ! Xu_ens_Anomaly_upd = matmul(X_ens_Anomaly, Wa_Mat)
+        ! ! non-ens_mean, ensemble members update
+        ! ! Xave_anl + X'Wa 
+        ! anl_at_Grid_ens_interm(1,:) = Xu_ens_Anomaly_upd(1, :) + anl_at_Grid_ens(ens_size + 1)
+        ! anl_at_Grid_ens(1:ens_size) =RESHAPE(anl_at_Grid_ens_interm,(/ens_size/))
+        ! !10.26.21 ensemble increments
+        ! incr_atGrid_ens(1:ens_size) = anl_at_Grid_ens(1:ens_size) - X_state(1,:)
+        
+        ! Pa = X'(Pa_bar)X'T
+        Pa_cov = matmul(matmul(X_ens_Anomaly, Pa_bar), transpose(X_ens_Anomaly))(1,1)
+
+        if (print_debug) then
+            print*, "Xu_ens_Anomaly_upd: Innov at grid ens anomaly"
+            print*, Xu_ens_Anomaly_upd
+            print*, "Analysis ensemble "
+            print*, anl_at_Grid_ens
+            print*, "Ensemble increments"
+            print*, incr_atGrid_ens
+            print*, "Pa updated cov"
+            print*, Pa_cov
+        endif
+        
+        RETURN
+
+
+    End Subroutine snow_DA_LETKF
+    
    Subroutine snow_DA_EnSRF(RLA_jndx, RLO_jndx, Orog_jndx,   &
         num_Obs_1, num_Obs, num_stn, jindx, ens_size,   &
         L_horz, h_ver,                                      &   !L_horz in Km, h_ver in m

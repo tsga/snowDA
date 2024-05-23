@@ -116,6 +116,7 @@
     CHARACTER(LEN=500)   :: inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr
     CHARACTER(LEN=500)   :: inp_file_backEsmfWeights
     logical              :: only_hofx, regional_tile
+    integer              :: ens_inflation_fact_in
     integer              :: nlunit
 
     ! NAMELIST/NAMCYC/ IDIM,JDIM,LSOIL,LUGB,IY,IM,ID,IH,FH,    &
@@ -143,7 +144,7 @@
         exclude_obs_at_grid, &
         read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
         read_weighted_back, inp_file_backEsmfWeights, &
-        only_hofx, regional_tile
+        only_hofx, regional_tile, ens_inflation_fact_in
     !
     DATA IDIM,JDIM,LSOIL,NUM_TILES/96,96,4,6/ 
     DATA IY,IM,ID,IH,FH/1997,8,2,0,0./
@@ -223,6 +224,7 @@
     DATA only_hofx/.false./
 
     DATA regional_tile/.false./
+    DATA ens_inflation_fact_in/1./
 
     CALL MPI_INIT(IERR)
     CALL MPI_COMM_SIZE(MPI_COMM_WORLD, NPROCS, IERR)
@@ -412,6 +414,31 @@
                 SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
                 Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
                 begloc, endloc, regional_tile)
+
+    Else if(SNOW_DA_TYPE .eq. 7) then    
+        Call LETKF_Snow_Analysis_NOAHMP(NUM_TILES, MYRANK, NPROCS, IDIM, JDIM, &
+                IY, IM, ID, IH, &
+                ! num_assim_steps, dT_Asssim,  & 
+                LENSFC, IVEGSRC, PERCENT_OBS_WITHHELD, & 
+                horz_len_scale, ver_len_scale, obs_tolerance, max_ele_diff, &
+                stdev_obsv_depth, stdev_obsv_sncov, stdev_back, & 
+                obs_srch_rad, bkgst_srch_rad, max_num_nearStn, max_num_nearIMS, &                                
+                ims_max_ele, num_subgrd_ims_cels, &
+                ens_size, rcov_localize, ens_inflate,  &  !rcov_correlated, 
+                rcov_correlated, bcov_localize, BBcov_localize, &
+                add_static_bcov, static_stdev_back, &
+                assim_SnowPack_obs, assim_SnowCov_obs, &
+                STN_OBS_PREFIX, STN_DIM_NAME, STN_VAR_NAME, STN_ELE_NAME, &
+                IMS_SNOWCOVER_PATH, IMS_INDEXES_PATH, resample_scf, & 
+                restart_prefix, openloop_prefix, static_filename, &
+                output_prefix, &
+                snowUpdateOpt, PRINTRANK, print_debg_info, &  !fv3_index, vector_inputs, &
+                SNDANL, &   !SNDFCS_out, SWEANL_out, & incr_at_Grid_out, 
+                Np_til, p_tN, p_tRank, N_sA, N_sA_Ext, mp_start, mp_end, LENSFC_proc, &
+                begloc, endloc, exclude_obs_at_grid, &
+                read_obsback_error, inp_file_obsErr, dim_name_obsErr, var_name_obsErr, var_name_backErr, &
+                read_weighted_back, inp_file_backEsmfWeights,    &
+                only_hofx, ens_inflation_fact_in)
     Endif 
 
     ! IF (MAX_TASKS < 99999 .AND. MYRANK > (MAX_TASKS - 1)) THEN
