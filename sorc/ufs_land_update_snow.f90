@@ -2136,10 +2136,10 @@ MODULE M_UFSLAND_SNOW_UPDATE
         End do 
 
         ! 7.20.21 map fv3 to land
-        Do ixy=1, vector_length 
-            SWEFCS(ixy) = dummy1(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-            SNDFCS(ixy) = dummy2(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-            ! VETFCS(ixy) = dummy3(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
+        Do ixy=1, vector_length  ! nc stored as time,y,x 
+            SWEFCS(ixy) = dummy1(tile_xy(ixy),Idim_xy(ixy),Jdim_xy(ixy)) ! Jdim_xy(ixy), Idim_xy(ixy))
+            SNDFCS(ixy) = dummy2(tile_xy(ixy), Idim_xy(ixy),Jdim_xy(ixy)) !Jdim_xy(ixy), Idim_xy(ixy))
+            ! VETFCS(ixy) = dummy3(tile_xy(ixy), Idim_xy(ixy),Jdim_xy(ixy)  #Jdim_xy(ixy), Idim_xy(ixy))
         end do
         ! if (myrank==0) then
         !     print*, "Vet type 1 "
@@ -2208,9 +2208,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
 
         ! 7.20.21 map fv3 to land
         Do ixy=1, LENSFC 
-            ! SWEFCS(ixy) = dummy1(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-            SNDFCS(ie, ixy) = dummy(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-            ! VETFCS(ixy) = dummy3(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
+            SNDFCS(ie, ixy) = dummy(tile_xy(ixy), Idim_xy(ixy),Jdim_xy(ixy))  !Jdim_xy(ixy), Idim_xy(ixy))
         end do
     enddo
     
@@ -2275,11 +2273,6 @@ MODULE M_UFSLAND_SNOW_UPDATE
         ! 7.20.21 map fv3 to land
         dummy2 = reshape(dummy,(/IDIM * JDIM/))
         SNDFCS(ie, :) = dummy2(mp_start:mp_end)    !LENSFC/)) 
-        ! Do ixy=1, LENSFC 
-        !     ! SWEFCS(ixy) = dummy1(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-        !     SNDFCS(ie, ixy) = dummy(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-        !     ! VETFCS(ixy) = dummy3(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy))
-        ! end do
     enddo
     
   end subroutine read_regional_fv3_tovector_ens
@@ -2318,8 +2311,8 @@ MODULE M_UFSLAND_SNOW_UPDATE
             dummy2(myindx,:,:) = reshape(SNDFfull(myindx,:), (/IDIM, JDIM/))
         enddo
         Do ixy=1, vector_length 
-            dummy1(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy)) = SWEFCS(ixy)
-            dummy2(tile_xy(ixy), Jdim_xy(ixy), Idim_xy(ixy)) = SNDFCS(ixy)
+            dummy1(tile_xy(ixy), Idim_xy(ixy), Jdim_xy(ixy)) = SWEFCS(ixy)
+            dummy2(tile_xy(ixy), Idim_xy(ixy), Jdim_xy(ixy)) = SNDFCS(ixy)
         end do
         ! print*, "snd"
         ! print*, dummy2(3,:,:)
@@ -2644,7 +2637,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out = reshape(SWEANL(myindx,:), (/IDIM, JDIM/))            
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out(Jdim_xy(ixy), Idim_xy(ixy)) = DUMMY1(ixy)
+                        DUMMY_out(Idim_xy(ixy), Jdim_xy(ixy)) = DUMMY1(ixy)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_snow_water_equiv, DUMMY_out(:,:), dims_strt, dims_end)
@@ -2654,7 +2647,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out = reshape(SNDANL(myindx,:), (/IDIM, JDIM/))            
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out(Jdim_xy(ixy), Idim_xy(ixy)) = DUMMY2(ixy)
+                        DUMMY_out(Idim_xy(ixy), Jdim_xy(ixy)) = DUMMY2(ixy)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_sndpth_m, DUMMY_out(:,:), dims_strt, dims_end)
@@ -2663,7 +2656,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out = IEEE_VALUE(DUMMY_out, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out(Jdim_xy(ixy), Idim_xy(ixy)) = DUMMY3(ixy)
+                        DUMMY_out(Idim_xy(ixy), Jdim_xy(ixy)) = DUMMY3(ixy)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_snowxy, DUMMY_out(:,:), dims_strt, dims_end)
@@ -2672,7 +2665,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out = IEEE_VALUE(DUMMY_out, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out(Jdim_xy(ixy), Idim_xy(ixy)) = DUMMY4(ixy)
+                        DUMMY_out(Idim_xy(ixy), Jdim_xy(ixy)) = DUMMY4(ixy)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_sneqvoxy, DUMMY_out(:,:), dims_strt, dims_end)
@@ -2681,7 +2674,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out2 = IEEE_VALUE(DUMMY_out2, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out2(Jdim_xy(ixy), Idim_xy(ixy), :) = DUMMY5(ixy, :)
+                        DUMMY_out2(Idim_xy(ixy), Jdim_xy(ixy), :) = DUMMY5(ixy, :)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_zsnsoxy, DUMMY_out2(:,:,:), &
@@ -2691,7 +2684,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out3 = IEEE_VALUE(DUMMY_out3, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out3(Jdim_xy(ixy), Idim_xy(ixy),:) = DUMMY6(ixy,:)
+                        DUMMY_out3(Idim_xy(ixy), Jdim_xy(ixy), :) = DUMMY6(ixy,:)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_tsnoxy, DUMMY_out3(:,:,:), &
@@ -2701,7 +2694,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out3 = IEEE_VALUE(DUMMY_out3, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out3(Jdim_xy(ixy), Idim_xy(ixy),:) = DUMMY7(ixy,:)
+                        DUMMY_out3(Idim_xy(ixy),Jdim_xy(ixy),:) = DUMMY7(ixy,:)
                     endif
                 end do  
                 ERROR=NF90_PUT_VAR(NCID, id_snicexy, DUMMY_out3(:,:,:), &
@@ -2711,7 +2704,7 @@ MODULE M_UFSLAND_SNOW_UPDATE
                 DUMMY_out3 = IEEE_VALUE(DUMMY_out3, IEEE_QUIET_NAN)           
                 Do ixy=1, vector_length 
                     if (myindx == tile_xy(ixy)) then
-                        DUMMY_out3(Jdim_xy(ixy), Idim_xy(ixy),:) = DUMMY8(ixy,:)
+                        DUMMY_out3(Idim_xy(ixy),Jdim_xy(ixy), :) = DUMMY8(ixy,:)
                     endif
                 end do
                 ERROR=NF90_PUT_VAR(NCID, id_snliqxy, DUMMY_out3(:,:,:), &

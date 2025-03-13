@@ -5040,8 +5040,8 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
         if (myrank==PRINTRANK) PRINT*, 'Finished DA loops'
 	! PRINT*, 'Finished DA loops', ' proc:', myrank
 
-        PRINT*, "Proc", myrank, " Analysis Cov "
-        PRINT*, Pa_cov
+        !PRINT*, "Proc", myrank, " Analysis Cov "
+        !PRINT*, Pa_cov
 
 997  CONTINUE
 
@@ -5191,7 +5191,8 @@ END subroutine EnKF_Snow_Analysis_NOAHMP
                 SNDnoDA, SWEnoDA, noahmp,   &
                 SNDFCS,  SWEFCS, SNDANL, SWEANL, incr_at_Grid,   &  ! 
                 index_obs_assmilated,   &
-                SNCOV_IMS, IMS_Foot_Print, SNO_IMS_at_Grid(ens_size+1,:),  &
+                !SNCOV_IMS,***PA_COV temp. being printed out as SNCOV_IMS 
+                Pa_cov, IMS_Foot_Print, SNO_IMS_at_Grid(ens_size+1,:),  &
                 SNODENS_Grid, SCF_Grid, &  ! SAVe this as snowc
                 noahmp_ensm_swe, noahmp_ensm_snow_depth, &       
                 Lat_stn, Lon_stn, OROG_at_stn, SNOOBS_stn, index_back_atObs, &
